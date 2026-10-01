@@ -29,7 +29,7 @@
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   },
-  "description": "A local-first Chrome video downloader with selected-player detection, HLS and Bilibili DASH support.",
+  "description": "Save web videos with ease, choose your preferred quality, and manage downloads locally for everyday collections and offline viewing.",
   "license": "MIT",
   "engines": {
     "node": ">=24.15.0"
