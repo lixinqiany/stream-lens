@@ -18,11 +18,11 @@ function indexed(data:Uint8Array) {
 const video=indexed(new Uint8Array(await readFile('src/core/tests/fixtures/dash-video.mp4'))),audio=indexed(new Uint8Array(await readFile('src/core/tests/fixtures/dash-audio.mp4')));
 video.track.url='https://cdn.example/video.m4s';video.track.codec='avc1.64001F';audio.track.url='https://cdn.example/audio.m4s';audio.track.codec='mp4a.40.2';
 const input=new Map([[video.track.url,video.data],[audio.track.url,audio.data]]),messages:any[]=[],files=new Map<string,Uint8Array>();
-let listener:any,denied=false,block=false,calls=0,rejectPrimary=false;const requested:string[]=[];
+let storageReads=0;let listener:any,denied=false,block=false,calls=0,rejectPrimary=false;const requested:string[]=[];
 const nativeFetch=globalThis.fetch;
 Object.assign(globalThis,{chrome:{runtime:{id:'test',getURL:(p:string)=>'chrome-extension://test/'+p,onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(m:any)=>{messages.push(structuredClone(m));return m.type==='CHECK_ORIGIN'?{ok:true,allowed:!denied}:m.type==='PREPARE_SAVE'?{ok:true,accepted:true}:{ok:true};}}}});
 const directory={removeEntry:async(name:string)=>{files.delete(name)},getFileHandle:async(name:string)=>({createWritable:async()=>{const pieces:Uint8Array[]=[];return {write:async(data:Uint8Array)=>{pieces.push(data.slice())},close:async()=>{files.set(name,concat(pieces))},abort:async()=>{files.delete(name)}}},getFile:async()=>new Blob([files.get(name)! as Uint8Array<ArrayBuffer>])})};
-Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>({getDirectoryHandle:async()=>directory})}}});
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>{storageReads++;return {getDirectoryHandle:async()=>directory};}}}});
 globalThis.fetch=async(inputUrl:any,options:any)=>{
  const url=String(inputUrl);requested.push(url);const data=input.get(url)!;calls++;if(rejectPrimary&&url===video.track.url)return new Response('denied',{status:403});
  if(block&&calls>4)await new Promise<void>((resolve,reject)=>{const t=setTimeout(resolve,120);options.signal?.addEventListener('abort',()=>{clearTimeout(t);reject(new DOMException('aborted','AbortError'))},{once:true})});
@@ -45,8 +45,26 @@ test('DASH primary HTTP rejection uses API backup and keeps sound with permissio
 });
 
 test('DASH selected destination saves both tracks without a late Chrome download dialog',async()=>{
- block=false;denied=false;const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);
+ block=false;denied=false;const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);const reads=storageReads;
  await command({type:'RUN',task:t});await until(()=>messages.some(m=>m.type==='SAVED'||m.task?.state==='failed'));
  assert(!messages.some(m=>m.task?.state==='failed'),JSON.stringify(messages));assert(!messages.some(m=>m.type==='OUTPUT'));
- const tracks=mux.mp4.probe.tracks(file.bytes()!);assert.equal(tracks.filter(t=>t.type==='video').length,1);assert.equal(tracks.filter(t=>t.type==='audio').length,1);await until(()=>!files.size);
+ assert.equal(storageReads,reads,'selected DASH must not use OPFS');assert.equal(file.stats().opens,1);const tracks=mux.mp4.probe.tracks(file.bytes()!);assert.equal(tracks.filter(t=>t.type==='video').length,1);assert.equal(tracks.filter(t=>t.type==='audio').length,1);await until(()=>!files.size);
+});
+
+test('selected DASH writes fragments while downloading and retains the same writer across pause',async()=>{
+ block=true;const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);const reads=storageReads;
+ await command({type:'RUN',task:t});await until(()=>messages.some(m=>m.task?.segments===1));
+ await command({type:'CONTROL',id:t.id,action:'pause'});const staged=file.stats().staged;
+ assert(staged>32);assert.equal(file.bytes(),undefined);await new Promise(r=>setTimeout(r,25));assert.equal(file.stats().staged,staged);
+ await command({type:'CONTROL',id:t.id,action:'resume'});await until(()=>messages.some(m=>m.type==='SAVED'||m.task?.state==='failed'));
+ assert(!messages.some(m=>m.task?.state==='failed'));assert.equal(file.stats().opens,1);assert.equal(storageReads,reads);
+ const tracks=mux.mp4.probe.tracks(file.bytes()!);assert.equal(tracks.length,2);block=false;
+});
+
+test('cancelled selected DASH discards partial staging and preserves an existing destination',async()=>{
+ block=true;const file=destinationFile();const original=new TextEncoder().encode('existing video');file.seed(original);
+ const t=task();t.destinationId=await rememberDestination(file.handle);await command({type:'RUN',task:t});
+ await until(()=>messages.some(m=>m.task?.segments===1));assert(file.stats().staged>32);
+ await command({type:'CONTROL',id:t.id,action:'cancel'});assert.equal(file.stats().aborts,1);assert.equal(file.stats().staged,0);
+ assert.deepEqual(file.bytes(),original);assert(!messages.some(m=>m.type==='SAVED'));block=false;
 });

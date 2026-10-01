@@ -4,7 +4,7 @@ import {JSDOM} from 'jsdom';
 const source="import {createRoot} from 'react-dom/client';import {Sidebar} from './src/extension/ui/Sidebar';createRoot(document.getElementById('root')).render(<Sidebar/>);";
 const bundle=await build({stdin:{contents:source,loader:'tsx',resolveDir:process.cwd()},jsx:'automatic',bundle:true,write:false,format:'iife',platform:'browser'});
 const dom=new JSDOM('<div id="root"></div>',{url:'chrome-extension://test/sidepanel.html',runScripts:'outside-only'});const w=dom.window,calls=[];Object.defineProperty(w.document,'visibilityState',{value:'visible'});
-const base={id:'1',assetId:'a',title:'Test',filename:'test.mp4',pageUrl:'https://page.example',url:'https://cdn.example/video.m3u8',protocol:'HLS',quality:'720p',createdAt:1,updatedAt:1,bytes:100,segments:1,totalSegments:2,speed:0};
+const base={id:'1',assetId:'a',title:'Test',filename:'test.mp4',pageUrl:'https://page.example',url:'https://cdn.example/video.m3u8',protocol:'HLS',quality:'720p',createdAt:1,updatedAt:1,bytes:100,segments:1,totalSegments:1771,speed:0};
 let tasks=['failed','completed','cancelled','downloading'].map(state=>({...base,id:state,filename:state+'.mp4',state,...state==='failed'?{error:'HTTP 410'}:{}}));
 let pendingSaves=[];let heldAction;let holdTask=false;
 let prefs={quality:'best',editFilename:true,hideAds:true,saveAs:true,theme:'dark'};
@@ -18,7 +18,7 @@ w.chrome={tabs:{query:async()=>[{id:1,url:'https://page.example/'}],onActivated:
 }}};
 const settle=()=>new Promise(r=>setTimeout(r,35));w.eval(bundle.outputFiles[0].text);await settle();
 const button=text=>[...w.document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith(text));
-button('下载任务').click();await settle();const clear=button('清理记录');assert(clear.classList.contains('sl-secondary'));assert(!clear.disabled);
+button('下载任务').click();await settle();assert(w.document.querySelector('.sl-task-card .sl-task-status strong').textContent==='');assert(!w.document.body.textContent.includes('分片'));assert([...w.document.querySelectorAll('.sl-task-status strong')].some(el=>el.textContent==='<1%'));const clear=button('清理记录');assert(clear.classList.contains('sl-secondary'));assert(!clear.disabled);
 assert(w.document.body.textContent.includes('下载失败'));assert(!w.document.body.textContent.includes('需要处理'));assert(!w.document.body.textContent.includes('下载中断'));
 button('失败').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,1);assert(w.document.body.textContent.includes('failed.mp4'));
 button('已结束').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,2);assert(!w.document.body.textContent.includes('failed.mp4'));
@@ -30,7 +30,7 @@ button('返回').click();await settle();assert(w.document.querySelector('.sl-tas
 button('失败').click();await settle();holdTask=true;button('重试').click();button('重试').click();await settle();assert.equal(calls.filter(m=>m.type==='TASK').length,1);assert(button('重试').disabled);assert(w.document.querySelector('[aria-busy="true"]'));heldAction();holdTask=false;await settle();
 pendingSaves=[{id:'save-one',filename:'pending.mp4',pageUrl:'https://page.example/'}];await new Promise(r=>setTimeout(r,2050));button('进行中').click();await settle();assert(w.document.body.textContent.includes('等待选择保存位置'));const card=w.document.querySelector('.sl-pending-card');card.querySelector('.sl-secondary').click();await settle();assert(calls.some(m=>m.type==='SAVE_FOCUS'));card.querySelector('.sl-text-button').click();await settle();assert(!w.document.querySelector('.sl-pending-card'));
 button('已结束').click();await settle();assert(w.document.body.textContent.includes('暂无已结束记录'));button('查看全部任务').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,2);
-assert.equal(w.document.body.textContent.match(/v0\.2\.8/g).length,1);dom.window.close();
+assert.equal(w.document.body.textContent.match(/v0\.2\.9/g).length,1);dom.window.close();
 const pickerBundle=await build({entryPoints:['src/extension/save/index.ts'],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'}});
 for(const cancelled of [true,false]){
  const d=new JSDOM('<p id="filename"></p><p id="status"></p><button id="cancel">取消</button><button id="choose" disabled>选择位置并下载</button>',{url:'chrome-extension://test/save.html?request=abc',runScripts:'outside-only'});

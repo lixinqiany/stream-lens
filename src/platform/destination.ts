@@ -46,3 +46,15 @@ export async function writeDestination(id:string,file:Blob,signal:AbortSignal) {
     await file.stream().pipeTo(writer,{signal});
   }catch(error){await writer.abort().catch(()=>{});throw error;}
 }
+export type DestinationWriter={write(data:Uint8Array<ArrayBuffer>):Promise<void>;close():Promise<void>;abort():Promise<void>};
+export async function openDestination(id:string):Promise<DestinationWriter> {
+  const handle=await checkDestination(id);
+  // File System Access writes to disk with an atomic close. Keep the stream
+  // open across network pauses; only cancel/failure should discard its staging.
+  const stream=await handle.createWritable();const writer=stream.getWriter();let ended=false;
+  return {
+    write:data=>writer.write(data),
+    async close(){try{await writer.close();ended=true;}finally{if(ended)writer.releaseLock();}},
+    async abort(){if(ended)return;ended=true;try{await writer.abort();}finally{writer.releaseLock();}},
+  };
+}

@@ -3,13 +3,13 @@ import {rememberDestination} from '../../platform/destination';
 destinationDatabase();
 import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import type {DownloadRecord} from '../model';
 const ts=new Uint8Array(await readFile('src/core/tests/fixtures/hls-segment.bin'));
-const nativeFetch=globalThis.fetch;const messages:any[]=[];const files=new Map<string,Uint8Array>();let listener:any;let block=false;let denied=false;let encrypted=false;let calls=0;let currentId='';let rejectSave=false;let expired=false,mismatch=false,refreshCount=0;const urls:string[]=[];
+const nativeFetch=globalThis.fetch;const messages:any[]=[];const files=new Map<string,Uint8Array>();let listener:any;let block=false;let denied=false;let encrypted=false;let calls=0;let currentId='';let rejectSave=false;let storageReads=0;let streaming:undefined|(()=>Response);let expired=false,mismatch=false,refreshCount=0;const urls:string[]=[];
 const rawKey=new Uint8Array(16).fill(7);const cryptoKey=await crypto.subtle.importKey('raw',rawKey,'AES-CBC',false,['encrypt']);const cipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-CBC',iv:new Uint8Array(16)},cryptoKey,ts));
 Object.assign(globalThis,{chrome:{runtime:{id:'test',getURL:(path:string)=>'chrome-extension://test/'+path,onMessage:{addListener:(fn:any)=>{listener=fn;}},sendMessage:async(message:any)=>{messages.push(structuredClone(message));if(message.type==='CHECK_ORIGIN')return {ok:true,allowed:!denied};if(message.type==='REFRESH_HLS'){refreshCount++;return {ok:true,value:{url:'https://cdn.example/fresh/v.m3u8'}};}return message.type==='PREPARE_SAVE'?{ok:true,accepted:!rejectSave}:{ok:true};}}}});
 const directory={removeEntry:async(name:string)=>{files.delete(name);},getFileHandle:async(name:string)=>({createWritable:async()=>{const chunks:Uint8Array[]=[];return {write:async(data:Uint8Array)=>{chunks.push(data.slice());},close:async()=>{files.set(name,new Uint8Array(Buffer.concat(chunks)));},abort:async()=>{files.delete(name);}};},getFile:async()=>new Blob([files.get(name)! as Uint8Array<ArrayBuffer>])})};
-Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>({getDirectoryHandle:async()=>directory})}}});
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>{storageReads++;return {getDirectoryHandle:async()=>directory};}}}});
 globalThis.fetch=async(input:any,options:any)=>{
- const url=String(input);urls.push(url);if(expired){if(url.endsWith('.m3u8'))return new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXTINF:'+((mismatch&&url.includes('/fresh/'))?11:10)+',\nb.ts\n#EXT-X-ENDLIST');if(url==='https://cdn.example/b.ts')return new Response('gone',{status:410});}if(url.startsWith('blob:'))return nativeFetch(input,options);
+ const url=String(input);urls.push(url);if(streaming)return streaming();if(expired){if(url.endsWith('.m3u8'))return new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXTINF:'+((mismatch&&url.includes('/fresh/'))?11:10)+',\nb.ts\n#EXT-X-ENDLIST');if(url==='https://cdn.example/b.ts')return new Response('gone',{status:410});}if(url.startsWith('blob:'))return nativeFetch(input,options);
  if(url.endsWith('.m3u8'))return new Response('#EXTM3U\n'+(encrypted?'#EXT-X-KEY:METHOD=AES-128,URI="key",IV=0x0\n':'')+'#EXTINF:10,\nseg.ts\n#EXT-X-ENDLIST');
  if(url.endsWith('/key'))return new Response(rawKey);
  calls++;
@@ -44,9 +44,9 @@ test('HLS 410 renewal rejects changed timelines and cannot save truncated output
 });
 
 test('selected HLS destination commits final MP4 and never emits a Chrome OUTPUT request',async()=>{
- const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);
+ const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);const reads=storageReads;
  await command({type:'RUN',task:t});await until(()=>messages.some(m=>m.type==='SAVED'&&m.id===t.id));
- assert.equal(new TextDecoder().decode(file.bytes()!.slice(4,8)),'ftyp');assert(!messages.some(m=>m.type==='OUTPUT'));await until(()=>files.size===0);
+ assert.equal(storageReads,reads,'selected output must never open OPFS');assert.equal(file.stats().opens,1);assert.equal(new TextDecoder().decode(file.bytes()!.slice(4,8)),'ftyp');assert(!messages.some(m=>m.type==='OUTPUT'));await until(()=>files.size===0);
 });
 test('destination failure retains failed state and cannot emit completion or commit partial bytes',async()=>{
  const file=destinationFile();file.fail();const t=task();t.destinationId=await rememberDestination(file.handle);
@@ -67,7 +67,33 @@ test('direct selected-location download pauses and restarts safely; cancel leave
  await command({type:'RUN',task:next});await until(()=>calls>0);await command({type:'CONTROL',id:next.id,action:'cancel'});assert.equal(cancelled.bytes(),undefined);assert(!messages.some(m=>m.type==='SAVED'));assert.equal(files.size,0);block=false;
 });
 
-test('rejected final save reservation never creates a destination writer or commits bytes',async()=>{
+test('rejected final save reservation discards streamed staging and never commits bytes',async()=>{
  rejectSave=true;const file=destinationFile();const t=task();t.destinationId=await rememberDestination(file.handle);await command({type:'RUN',task:t});await until(()=>state('failed'));
- assert.equal(file.bytes(),undefined);assert(!messages.some(m=>m.type==='SAVED'));await until(()=>!files.size);rejectSave=false;
+ assert.equal(file.bytes(),undefined);assert(!messages.some(m=>m.type==='SAVED'));await until(()=>file.stats().aborts===1);assert.equal(file.stats().opens,1);assert.equal(file.stats().staged,0);rejectSave=false;
+});
+
+test('selected HLS writes before completion, preserves staging on pause and aborts it on cancel',async()=>{
+ expired=true;block=true;const file=destinationFile();const original=new TextEncoder().encode('existing file');file.seed(original);
+ const t=task();t.destinationId=await rememberDestination(file.handle);const reads=storageReads;
+ await command({type:'RUN',task:t});await until(()=>messages.some(m=>m.task?.segments===1));
+ await command({type:'CONTROL',id:t.id,action:'pause'});const staged=file.stats().staged;assert(staged>32);await new Promise(r=>setTimeout(r,25));
+ assert.equal(file.stats().staged,staged);assert.equal(file.stats().opens,1);assert.deepEqual(file.bytes(),original);
+ await command({type:'CONTROL',id:t.id,action:'cancel'});assert.equal(file.stats().aborts,1);assert.equal(file.stats().staged,0);
+ assert.deepEqual(file.bytes(),original);assert.equal(storageReads,reads);assert(!messages.some(m=>m.type==='SAVED'));expired=false;block=false;
+});
+
+test('3 GB direct stream uses bounded chunks, disk backpressure and zero OPFS copies',async()=>{
+ const chunk=new Uint8Array(1024*1024),count=3072;let writes=0,pulls=0,closed=false,maxAhead=0;
+ const handle={...destinationFile().handle,createWritable:async()=>new WritableStream<Uint8Array>({
+   async write(data){assert.equal(data.byteLength,chunk.length);maxAhead=Math.max(maxAhead,pulls-writes);writes++;},close(){closed=true;},
+ })};
+ streaming=()=>new Response(new ReadableStream<Uint8Array>({pull(controller){
+   if(pulls<count){pulls++;controller.enqueue(chunk);}else controller.close();
+ }},{highWaterMark:0}),{headers:{'content-length':String(count*chunk.length)}});
+ const t=task();t.protocol='MP4';t.url='https://cdn.example/large.mp4';t.destinationId=await rememberDestination(handle as any);const reads=storageReads;
+ try {
+  await command({type:'RUN',task:t});await until(()=>messages.some(m=>m.type==='SAVED'||m.task?.state==='failed'));
+  assert(!state('failed'),JSON.stringify(messages));assert.equal(writes,count);assert.equal(closed,true);assert(maxAhead<=1);
+  assert.equal(storageReads,reads);assert(!messages.some(m=>m.type==='OUTPUT'));assert(messages.some(m=>m.task?.bytes===3*1024**3));
+ }finally{streaming=undefined;}
 });

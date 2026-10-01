@@ -22,7 +22,7 @@ export type DownloadRecord = {
   destinationId?:string;
 };
 export type Preferences = { quality: 'best' | '720' | '480'; editFilename: boolean; hideAds: boolean; theme: 'dark' | 'light'; saveAs: boolean };
-export const defaults: Preferences = { quality: 'best', editFilename: false, hideAds: true, theme: 'dark', saveAs: false };
+export const defaults: Preferences = { quality: 'best', editFilename: false, hideAds: true, theme: 'dark', saveAs: true };
 export type PageCatalog = { pageUrl: string; assets: MediaAsset[]; documentKey: string; updatedAt: number; selection?: PlayerSelection; shortcutError?: {message: string; origins: string[]} };
 export type PendingSave = {id:string;filename:string;pageUrl:string;retryId?:string};
 export type Snapshot = { page: PageCatalog | null; tasks: DownloadRecord[]; preferences: Preferences; pendingSaves?:PendingSave[] };
@@ -41,6 +41,6 @@ export function safeFilename(title: string, quality: string, extension: string):
 }
 export function taskProgress(task: DownloadRecord): number | undefined {
   if (task.state === 'completed') return 100;
-  if (['HLS','DASH'].includes(task.protocol) && task.totalSegments) return Math.min(100, task.segments / task.totalSegments * 100);
   if (task.totalBytes && task.totalBytes > 0) return Math.min(100, task.bytes / task.totalBytes * 100);
+  if (['HLS','DASH'].includes(task.protocol) && task.totalSegments) return Math.min(100, task.segments / task.totalSegments * 100);
 }

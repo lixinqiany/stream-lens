@@ -6,6 +6,10 @@ test('main player outranks playing ad, repeated network evidence preserves ad cl
  assets=mergeEvidence(assets,{...evidence,url:'https://cdn.example/ad.mp4',title:'page title',primary:false,playing:false,width:0,height:0,duration:undefined,source:'network'});
  assert.equal(assets[0].title,'主视频');assert.equal(assets[1].suspectedAd,true);
 });
+test('known byte totals take priority over uneven audio/video fragment counts',()=>{
+ const task={state:'downloading',protocol:'DASH',segments:1,totalSegments:2,bytes:25,totalBytes:100} as DownloadRecord;
+ assert.equal(taskProgress(task),25);
+});
 test('exact URLs deduplicate without collapsing different signed resources',()=>{
  let assets=mergeEvidence([],evidence);assets=mergeEvidence(assets,{...evidence,source:'script'});assert.equal(assets.length,1);assert.deepEqual(assets[0].evidence,['player','script']);assets=mergeEvidence(assets,{...evidence,url:'https://cdn.example/main.m3u8?sig=b'});assert.equal(assets.length,2);
 });

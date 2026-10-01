@@ -45,11 +45,11 @@
 
 1. Download the ZIP from [Releases](https://github.com/lixinqiany/stream-lens/releases/latest) and extract it to a permanent folder.
 2. Open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the folder containing `manifest.json`.
-3. Pin StreamLens to the toolbar. Open a video page and click its player. Once detection finishes, confirm the quality and select **下载视频** (Download video).
+3. Pin StreamLens to the toolbar. Open a video page and click its player. Once detection finishes, confirm the quality and select **选择位置并下载** (Choose location and download).
 
 **Updating:** Replace the contents of the original extension folder, reload the extension, then refresh video pages.
 
-**Save location:** Uses Chrome's download folder by default. Enable **下载前选择保存位置** (Choose a save location before downloading) to pick a destination first.
+**Save location:** Choose the filename and location first, then stream the download to disk. The complete file is committed when finished, without a second full-file copy. Updating to v0.2.9 enables this mode. Turn off **下载前选择保存位置** (Choose a save location before downloading) to use Chrome’s download folder; HLS / DASH still use a local temporary file in that mode.
 
 ## Supported media
 

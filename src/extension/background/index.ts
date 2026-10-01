@@ -6,7 +6,7 @@ import { allowedFetch, PermissionError } from '../../core/hls/fetch';
 import {ResolutionCache} from '../../core/discovery/resolution';
 import { parseHls } from '../../core/hls/parser';
 import {renewedHlsUrl} from '../../core/hls/refresh';
-import { getPage, getPreferences, getTasks, mutateTasks, patchTask, setPage } from '../../platform/repository';
+import { getPage, getPreferences, upgradeSavePreferences, getTasks, mutateTasks, patchTask, setPage } from '../../platform/repository';
 import type { ContentMessage, PlayerCommand, PlayerResolveResult, Response, RunnerMessage, UiCommand, WorkerMessage, SaveCommand, SaveRequest } from '../../platform/messages';
 
 import {checkDestination,forgetDestination} from '../../platform/destination';
@@ -23,7 +23,7 @@ const resolutionCache=new ResolutionCache<MediaAsset>();
 const frameDocuments=new Map<string,string>();
 
 chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}).catch(()=>{});
-chrome.runtime.onInstalled.addListener(()=>{void initialize();});
+chrome.runtime.onInstalled.addListener(details=>{void upgradeSavePreferences(details.previousVersion).then(()=>initialize());});
 chrome.runtime.onStartup.addListener(()=>{void initialize();});
 async function initialize() {
   await chrome.storage.local.set({schemaVersion:1});

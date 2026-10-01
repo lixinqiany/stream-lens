@@ -10,5 +10,10 @@ export async function patchTask(id:string,patch:Partial<DownloadRecord>) {
   return mutateTasks(tasks=>({tasks:tasks.map(task=>task.id===id?{...task,...patch,id:task.id,updatedAt:Date.now()}:task),value:undefined}));
 }
 export async function getPreferences():Promise<Preferences> {return {...defaults,...(await chrome.storage.local.get('preferences')).preferences};}
+export async function upgradeSavePreferences(previousVersion?:string) {
+  if(!previousVersion)return;
+  const [major,minor,patch]=previousVersion.split('.').map(Number);
+  if(major===0&&(minor<2||(minor===2&&patch<9)))await chrome.storage.local.set({preferences:{...await getPreferences(),saveAs:true}});
+}
 export async function getPage(tabId:number):Promise<PageCatalog|null> {return (await chrome.storage.session.get('page:'+tabId))['page:'+tabId]||null;}
 export async function setPage(tabId:number,page:PageCatalog) {await chrome.storage.session.set({['page:'+tabId]:page});}
