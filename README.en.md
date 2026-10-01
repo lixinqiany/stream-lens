@@ -1,8 +1,8 @@
 <div align="center">
   <img src="public/icons/128.png" width="72" height="72" alt="StreamLens logo">
   <h1>StreamLens · 拾影</h1>
-  <p><strong>Select a video. Detect its quality. Save a local copy.</strong></p>
-  <p>A Chrome video downloader · HLS VOD · Bilibili DASH · Local task management</p>
+  <p><strong>Keep the videos you love.</strong></p>
+  <p>Web video downloads · Automatic detection · Quality options · Streaming saves</p>
   <p>
     <a href="https://github.com/lixinqiany/stream-lens/releases/latest"><img src="https://img.shields.io/github/v/release/lixinqiany/stream-lens?style=flat-square&color=3869df" alt="Latest release"></a>
     <a href="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml"><img src="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>

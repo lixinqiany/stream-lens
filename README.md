@@ -1,8 +1,8 @@
 <div align="center">
   <img src="public/icons/128.png" width="72" height="72" alt="拾影 StreamLens 标志">
   <h1>拾影 StreamLens</h1>
-  <p><strong>点选视频，自动识别，保存到本机。</strong></p>
-  <p>Chrome 视频下载扩展 · HLS 点播 · Bilibili DASH · 本地任务管理</p>
+  <p><strong>喜欢的视频，值得留下。</strong></p>
+  <p>网页视频下载 · 自动识别 · 自选画质 · 边下边存</p>
   <p>
     <a href="https://github.com/lixinqiany/stream-lens/releases/latest"><img src="https://img.shields.io/github/v/release/lixinqiany/stream-lens?style=flat-square&color=3869df" alt="最新版本"></a>
     <a href="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml"><img src="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml/badge.svg" alt="构建与测试"></a>

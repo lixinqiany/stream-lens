@@ -29,7 +29,7 @@
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   },
-  "description": "Save web videos with ease, choose your preferred quality, and manage downloads locally for everyday collections and offline viewing.",
+  "description": "Keep the videos you love. A lightweight web video downloader with automatic player detection, quality options, and streaming saves to disk.",
   "license": "MIT",
   "engines": {
     "node": ">=24.15.0"

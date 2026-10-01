@@ -2,7 +2,7 @@ export const manifest = {
   manifest_version:3,
   name:'拾影 StreamLens',
   version:'0.2.9',
-  description:'便捷保存网页视频，按需选择画质，本地管理下载任务，方便日常收藏与离线观看。',
+  description:'喜欢的视频，值得留下。轻巧的网页视频下载工具，自动识别所选播放器，自选画质，边下边存。',
   minimum_chrome_version:'116',
   permissions:['activeTab','tabs','scripting','storage','downloads','sidePanel','webRequest','offscreen','alarms','declarativeNetRequestWithHostAccess'],
   host_permissions:['http://*/*','https://*/*'],
