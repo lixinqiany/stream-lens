@@ -1,79 +1,107 @@
-# 拾影 StreamLens
+<div align="center">
+  <img src="public/icons/128.png" width="72" height="72" alt="拾影 StreamLens 标志">
+  <h1>拾影 StreamLens</h1>
+  <p><strong>点选视频，自动识别，保存到本机。</strong></p>
+  <p>Chrome 视频下载扩展 · HLS 点播 · Bilibili DASH · 本地任务管理</p>
+  <p>
+    <a href="https://github.com/lixinqiany/stream-lens/releases/latest"><img src="https://img.shields.io/github/v/release/lixinqiany/stream-lens?style=flat-square&color=3869df" alt="最新版本"></a>
+    <a href="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml"><img src="https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml/badge.svg" alt="构建与测试"></a>
+    <img src="https://img.shields.io/badge/Chrome-116%2B-3869df?style=flat-square" alt="Chrome 116 或以上">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3869df?style=flat-square" alt="MIT 许可证"></a>
+  </p>
+  <p><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
+  <p>
+    <a href="https://github.com/lixinqiany/stream-lens/releases/latest">下载安装</a> ·
+    <a href="#功能">功能</a> ·
+    <a href="#支持范围">支持范围</a> ·
+    <a href="#开发">开发</a> ·
+    <a href="https://github.com/lixinqiany/stream-lens/discussions">社区讨论</a>
+  </p>
+</div>
 
-[![CI](https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/lixinqiany/stream-lens/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
-一个在本机处理视频的 Chrome 扩展：点击网页播放器，自动识别视频和清晰度，再确认下载。支持 HLS 点播、MP4 / WebM 直链和 Bilibili H.264 / AAC DASH。
-
-**[下载安装包](https://github.com/lixinqiany/stream-lens/releases/latest) · [问题反馈](https://github.com/lixinqiany/stream-lens/issues) · [参与贡献](CONTRIBUTING.md)**
-
-## 安装与使用
-
-需要 Chrome 116 或以上版本。当前通过开发者模式安装，尚未上架 Chrome Web Store。
-
-1. 从 Releases 下载 `stream-lens-0.2.8.zip`，解压到固定文件夹。
-2. 打开 `chrome://extensions`，开启开发者模式，点击“加载已解压的扩展程序”，选择含 `manifest.json` 的文件夹。
-3. 将拾影固定到工具栏。打开视频网页，点击视频画面或播放器控件，播放几秒。
-4. 从画面右上角“下载视频”或工具栏侧栏确认清晰度并下载。
-
-升级时用新包替换原扩展目录内容，重新加载扩展，再刷新视频网页。下载前选择保存位置可在设置中开启；未开启时保存到 Chrome 默认下载目录。
+<p align="center">
+  <img src="docs/images/overview-zh.png" width="1200" alt="播放器右上角快捷下载与拾影侧栏：自动识别清晰度后确认下载">
+  <br>
+  <sub>界面示意 · 示例数据</sub>
+</p>
 
 ## 功能
 
-- 根据用户点击选择播放器，自动播放与其他页面视频不会自动改变下载目标。
-- 自动识别可用清晰度，按偏好预选；同一来源共享解析请求，失败时提供重试。
-- 深色和浅色侧栏、视频画面快捷入口、文件名编辑、下载前选择保存位置。
-- 本机全局任务记录，支持暂停、继续、取消、重试和筛选；清理只移除已完成、已取消记录，不删除视频文件。
-- 关闭侧栏后继续处理任务；流式下载使用 OPFS 临时存储，不将整段视频保存在内存。
+| 选择与识别 | 下载与管理 |
+| --- | --- |
+| **选中播放器** — 点击视频画面或控件确定目标，其他视频自动播放不会改变选择。 | **画面快捷下载** — 从播放器右上角或常驻侧栏确认下载。 |
+| **自动识别画质** — 自动读取可用清晰度，按偏好预选，也可手动调整。 | **下载前选址** — 提前选择文件名与位置，完成后自动写入。 |
+| **深浅两种外观** — 精简卡片呈现标题、时长、画质和主要操作。 | **本地任务队列** — 暂停、继续、取消、重试与筛选，关闭侧栏后继续处理。 |
+
+<p align="center">
+  <img src="docs/images/workspace-zh.png" width="1200" alt="拾影浅色视频卡片、深色下载任务和保存设置界面">
+  <br>
+  <sub>基于 v0.2.8 界面绘制的示意图，使用示例数据，并非浏览器实机截图。</sub>
+</p>
+
+## 安装
+
+**需要 Chrome 116+。** 当前通过开发者模式安装，尚未上架 Chrome Web Store。
+
+1. 从 [Releases](https://github.com/lixinqiany/stream-lens/releases/latest) 下载 ZIP，解压到固定文件夹。
+2. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**，选择含 `manifest.json` 的文件夹。
+3. 将拾影固定到工具栏，打开视频网页并点击播放器。识别完成后确认清晰度，点击**下载视频**。
+
+**升级：** 用新包替换原扩展目录内容，重新加载扩展，再刷新视频网页。
+
+**保存位置：** 默认使用 Chrome 下载目录。开启“下载前选择保存位置”后，先选址再开始下载。
 
 ## 支持范围
 
-| 类型 | 行为 |
+| 视频来源 / 格式 | 下载方式 |
 | --- | --- |
 | MP4 / WebM 直链 | 保存原文件 |
-| HLS 点播，TS H.264 / AAC | 增量转封装为 MP4，不重新编码 |
-| HLS fMP4 点播 | 相同初始化信息、H.264 / AAC，顺序保存为 MP4 |
-| HLS AES-128 identity | 支持普通 AES-CBC 分片加密 |
-| Bilibili BV / 番剧 ep、ss，H.264 + AAC DASH | 按索引合并视频与音轨为 MP4 |
-| 其他站点 DASH、HLS 独立音轨、直播、时间线切换、DRM / SAMPLE-AES | 暂不支持 |
+| HLS 点播 · TS H.264 / AAC | 转封装为 MP4，不重新编码 |
+| HLS 点播 · fMP4 H.264 / AAC | 相同初始化信息的分片保存为 MP4 |
+| HLS AES-128 identity | 支持普通 AES-CBC 分片解密 |
+| Bilibili BV / 番剧 `ep`、`ss` · H.264 + AAC DASH | 合并视频与音轨为 MP4 |
 
-最多同时处理两个流式任务，单文件上限 8 GB。浏览器关闭会中断流式任务，重试从头开始；默认目录直链续传取决于服务器。下载前选址模式的直链暂停后继续会从头读取。
+**处理上限：** 同时两个流式任务，单文件最多 8 GB。Bilibili 清晰度取决于当前账号与地区的正常播放权限。
 
-播放器在 Worker 内部转封装、封闭 Shadow DOM、共用广告播放器或自定义媒体元素时，可能无法关联来源。部分站点要求登录、来源请求头或有效的临时链接；Bilibili 使用当前账号正常可访问的清晰度，试看和受保护视频不提供完整下载。请仅下载有权保存的内容。
+<details>
+<summary><strong>兼容性与恢复说明</strong></summary>
 
-## 从源码构建
+- 暂不支持直播、其他站点 DASH、HLS 独立音轨、时间线切换、DRM / SAMPLE-AES；试看内容不提供完整下载。
+- Worker 转封装、封闭 Shadow DOM、自定义媒体元素或共用广告播放器可能影响来源识别。
+- 浏览器关闭会中断流式任务，重试从头开始。默认目录直链续传取决于服务器；预选位置的直链暂停后继续会从头读取。
+- 自动化检查无法替代真实 Chrome 的原生保存窗口、跨文档写入授权和站点兼容性验收。详见 [验证记录](docs/validation.md)。
 
-使用 Node.js 24.15 或以上版本。
+</details>
+
+## 隐私与权限
+
+视频在本机处理。任务历史、偏好与临时文件只存本机，**无遥测、无云端上传**。清理记录不会删除已下载的视频文件。
+
+HTTP/HTTPS 站点权限用于识别播放器与访问视频 CDN，随安装声明；可在 Chrome 扩展详情中调整。仅下载你有权保存的内容。安全问题请通过 [私密漏洞报告](https://github.com/lixinqiany/stream-lens/security/advisories/new) 提交。
+
+## 开发
+
+**Node.js 24.15+**。从源码生成正式扩展：
 
 ```sh
 git clone https://github.com/lixinqiany/stream-lens.git
 cd stream-lens
 npm ci
-npm test
-npm run test:ui
 npm run build:extension
 ```
 
-在 Chrome 加载生成的 `dist-extension` 文件夹。`npm run dev` 展示早期设计原型与示例数据；正式扩展使用 `npm run build:extension`。
+在 Chrome 加载 `dist-extension`。修改后重新构建、重新加载扩展并刷新网页。
 
-核心解析与后台/执行器有 93 项测试；UI 检查用 jsdom 执行正式组件，不启动浏览器。真实 Chrome 的最终布局、原生文件窗口、跨文档保存授权和后台生命周期仍需实机验证。验证记录见 [docs/validation.md](docs/validation.md)。
+| 命令 | 用途 |
+| --- | --- |
+| `npm test` | 93 项核心解析、后台与执行器测试 |
+| `npm run test:ui` | 正式组件、播放器及保存恢复检查，使用 jsdom，不启动浏览器 |
+| `npm run dev` | 早期设计原型，使用演示数据 |
 
-## 隐私与权限
+[架构说明](docs/architecture.md) · [设计说明](docs/product-design.md) · [参考来源](docs/research.md) · [贡献指南](CONTRIBUTING.md)
 
-任务和偏好保存在 `chrome.storage.local`，当前页面目录保存在 `chrome.storage.session`，视频临时文件保存在扩展自己的 OPFS。历史包含视频标题、来源页和媒体地址，仅存本机，没有遥测或云端上传。
+## 社区与许可
 
-HTTP/HTTPS 站点权限随安装声明，用于关联播放器与视频资源、访问 CDN。Chrome 安装、升级或恢复访问时可能要求确认，扩展不会跳过浏览器权限检查。可在 Chrome 扩展详情中调整站点访问范围。
+欢迎 [提交问题](https://github.com/lixinqiany/stream-lens/issues)、[讨论想法](https://github.com/lixinqiany/stream-lens/discussions) 和 Pull Request。反馈时请移除 Cookie、令牌与带签名的媒体地址。
 
-## 项目结构
-
-- `src/core`：媒体模型、发现归并、HLS / DASH 解析与转封装。
-- `src/platform`：Chrome 消息、访问检查和存储仓库。
-- `src/extension`：播放器探针、后台、独立下载执行器、正式侧栏与保存页面。
-- `scripts/qa`：播放器、权限、界面与保存恢复的模拟检查。
-- `src/ui`：保留的早期设计原型。
-
-[架构说明](docs/architecture.md) · [设计说明](docs/product-design.md) · [参考来源](docs/research.md)
-
-## 开源与贡献
-
-采用 [MIT 许可证](LICENSE)。欢迎 Issue 和 Pull Request，详见 [贡献指南](CONTRIBUTING.md)。依赖保留各自许可证，构建包附带 `THIRD-PARTY-NOTICES.txt`；测试媒体为人工生成色块和音频，不包含网站视频。
+[MIT](LICENSE) © lixinqiany。依赖保留各自许可证，安装包附带 `THIRD-PARTY-NOTICES.txt`。测试媒体为人工生成色块与音频，不包含下载的网站视频。
