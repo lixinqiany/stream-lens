@@ -1,3 +1,4 @@
+import {t,watchLanguage,applyDocumentLanguage,localizeText} from '../../i18n';
 import {forgetDestination,pickDestination,type SavePicker} from '../../platform/destination';
 import type {Response,SaveCommand,SaveRequest,StartResult} from '../../platform/messages';
 import './styles.css';
@@ -7,15 +8,22 @@ const cancel=document.querySelector<HTMLButtonElement>('#cancel')!;
 const status=document.querySelector<HTMLElement>('#status')!;
 let request:SaveRequest|undefined,taskId:string|undefined,refreshing=false,busy=false;
 let selected:{id:string;filename:string}|undefined;
+function renderLanguage(){
+  applyDocumentLanguage();document.title=t("save_title");
+  const heading=document.querySelector('h1');if(heading)heading.textContent=t("save_location");
+  cancel.textContent=t("cancel");choose.textContent=localizeText(choose.textContent||'')||t("choose_location_download");
+  status.textContent=localizeText(status.textContent||'');
+}
+status.textContent=t("save_instructions");choose.textContent=t("choose_location_download");renderLanguage();watchLanguage(renderLanguage);
 async function send<T>(message:SaveCommand):Promise<T>{
   const response=await chrome.runtime.sendMessage(message) as Response<T>;
-  if(!response?.ok)throw new Error(response?.error||'下载服务未响应');return response.value;
+  if(!response?.ok)throw new Error(response?.error||t("the_download_service_did_not_respond_182"));return response.value;
 }
 function setBusy(value:boolean){busy=value;choose.disabled=value;cancel.disabled=value;choose.setAttribute('aria-busy',String(value));}
 async function started(result:StartResult){
   selected=undefined;
   if(result.duplicate||result.failed){window.close();return;}
-  taskId=result.id;status.textContent='下载中，可在侧栏查看进度。';choose.hidden=true;cancel.hidden=true;
+  taskId=result.id;status.textContent=t("downloading_view_progress_in_the_sidebar");choose.hidden=true;cancel.hidden=true;
   // Keep an extension-origin document alive while an older Chrome temporary
   // File System Access grant is in use. Background task history stays visible.
   const current=await chrome.windows.getCurrent().catch(()=>({id:undefined}));
@@ -26,7 +34,7 @@ void send<SaveRequest>({type:'SAVE_INFO',requestId}).then(async value=>{
   request=value;document.querySelector('#filename')!.textContent=value.filename;
   if(value.result){await started(value.result);return;}
   choose.disabled=false;choose.focus();
-}).catch(error=>{status.textContent=error.message;status.setAttribute('role','alert');});
+}).catch(error=>{status.textContent=localizeText(error.message);status.setAttribute('role','alert');});
 async function dismiss(){
   if(busy||taskId)return;
   await send({type:'SAVE_CANCEL',requestId}).catch(()=>{});
@@ -37,16 +45,16 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')void dismiss
 choose.addEventListener('click',async()=>{
   if(!request||busy||taskId)return;
   const picker=(window as unknown as {showSaveFilePicker?:SavePicker}).showSaveFilePicker;
-  if(!picker){status.textContent='当前浏览器不支持选择保存位置。';status.setAttribute('role','alert');return;}
+  if(!picker){status.textContent=t("this_browser_does_not_support_choosing_a_save");status.setAttribute('role','alert');return;}
   setBusy(true);status.setAttribute('role','status');
   try{
     if(!selected){
-      status.textContent='请选择文件名和保存位置…';
+      status.textContent=t("choose_a_filename_and_save_location");
       selected=await pickDestination(request.filename,picker.bind(window));
-      if(!selected){status.textContent='已取消选择，下载尚未开始。';choose.textContent='选择位置并下载';choose.focus();return;}
+      if(!selected){status.textContent=t("selection_cancelled_the_download_has_not_started");choose.textContent=t("choose_location_download");choose.focus();return;}
       document.querySelector('#filename')!.textContent=selected.filename;
     }
-    status.textContent='正在开始下载…';
+    status.textContent=t("starting_download");
     const result=await send<StartResult>({type:'SAVE_COMMIT',requestId,destinationId:selected.id,filename:selected.filename});
     if(result.duplicate)await forgetDestination(selected.id).catch(()=>{});
     await started(result);
@@ -60,8 +68,8 @@ choose.addEventListener('click',async()=>{
       confirmed=true;
     }catch{/* Keep the selected handle and retry the same idempotent commit. */}
     if(confirmed&&selected){await forgetDestination(selected.id).catch(()=>{});selected=undefined;}
-    status.textContent=error instanceof Error?error.message:'无法开始下载';status.setAttribute('role','alert');
-    choose.textContent=selected?'重试':'重新选择位置';
+    status.textContent=error instanceof Error?localizeText(error.message):t("cannot_start_the_download");status.setAttribute('role','alert');
+    choose.textContent=selected?t("retry"):t("choose_another_location");
   }finally{setBusy(false);if(!taskId&&!choose.hidden)choose.focus();}
 });
 async function checkTask(){

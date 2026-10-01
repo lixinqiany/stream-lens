@@ -216,3 +216,10 @@ test('stored loading metadata after worker restart is recovered on selected play
  content(evidence);await until(()=>session['page:1'].assets.some((a:any)=>a.resolutionState==='ready'));assert.equal(calls,1);
  }finally{globalThis.fetch=original;}
 });
+
+
+test('language preference persists, rejects invalid values and reaches the active runner',async()=>{
+ reset();const result=await ui({type:'PREFERENCES',patch:{language:'en'}});assert.equal(result.value.language,'en');
+ const invalid=await ui({type:'PREFERENCES',patch:{language:'xx'}});assert.equal(invalid.value.language,'en');
+ runnerAlive=true;await ui({type:'PREFERENCES',patch:{language:'zh_CN'}});assert(runner.some(m=>m.type==='LANGUAGE'&&m.language==='zh_CN'));
+});

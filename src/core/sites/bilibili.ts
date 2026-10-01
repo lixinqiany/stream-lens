@@ -1,3 +1,4 @@
+import {t} from '../../i18n';
 import {httpUrl, type Variant} from '../model.ts';
 import type {DashTrack} from '../dash/mp4';
 export function biliEndpoint(pageUrl:string,episodeId?:number):string|undefined {
@@ -27,31 +28,31 @@ export function biliPlayEndpoint(bvid:string,cid:number):string {
 }
 function range(value:unknown) {
   const match=typeof value==='string'&&/^(\d+)-(\d+)$/.exec(value);
-  if(!match)throw new Error('音视频分段索引无效');
+  if(!match)throw new Error(t("invalid_track_segment_index"));
   const offset=Number(match[1]),end=Number(match[2]);
-  if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(end)||end<offset||end>1_000_000)throw new Error('音视频分段索引超出范围');
+  if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(end)||end<offset||end>1_000_000)throw new Error(t("track_segment_index_exceeds_the_allowed_range"));
   return {offset,length:end-offset+1};
 }
 function track(raw:any):DashTrack {
   const url=httpUrl(raw.baseUrl||raw.base_url);
   const segment=raw.SegmentBase||raw.segment_base;
-  if(!url||!segment)throw new Error('音视频地址或索引缺失');
+  if(!url||!segment)throw new Error(t("track_url_or_index_is_missing"));
   const alternatives=raw.backupUrl||raw.backup_url||[];
   const backupUrls=Array.isArray(alternatives)?[...new Set(alternatives.map(httpUrl).filter((u):u is string=>!!u&&u!==url))].slice(0,4):[];
   return {url,backupUrls,init:range(segment.Initialization||segment.initialization),index:range(segment.indexRange||segment.index_range),codec:raw.codecs};
 }
 export function parseBiliPlayResponse(json:any):{variants:Variant[];duration:number} {
-  if(json?.code!==0)throw new Error(json?.code===-10403?'此视频需要登录、会员或所在地区的播放权限，请先在网页正常播放':`播放接口返回错误：${String(json?.message||json?.code||'未知错误').slice(0,180)}`);
+  if(json?.code!==0)throw new Error(json?.code===-10403?t("this_video_requires_login_a_subscription_or_regional"):t("playback_api_error",[String(json?.message||json?.code||t("unknown_error")).slice(0,180)]));
   const result=json.result||json.data;
   const data=result?.video_info||result;
-  if(data?.is_drm||data?.drm_tech_type||data?.dash?.drm_tech_type)throw new Error('此视频使用 DRM 保护，无法下载');
-  if(data?.is_preview)throw new Error('播放接口只返回试看，请先在网页取得完整播放权限');
+  if(data?.is_drm||data?.drm_tech_type||data?.dash?.drm_tech_type)throw new Error(t("drmprotected_videos_cannot_be_downloaded"));
+  if(data?.is_preview)throw new Error(t("only_a_preview_is_available_obtain_full_playback"));
   const videos=data?.dash?.video, audios=data?.dash?.audio;
-  if(!Array.isArray(videos)||!Array.isArray(audios))throw new Error('播放接口没有返回可合并的 DASH 音视频');
+  if(!Array.isArray(videos)||!Array.isArray(audios))throw new Error(t("playback_api_returned_no_compatible_dash_tracks"));
   const audio=audios.filter((t:any)=>/^mp4a\./i.test(t.codecs||'')).sort((a:any,b:any)=>(/^mp4a\.40\.2$/i.test(b.codecs)?1:0)-(/^mp4a\.40\.2$/i.test(a.codecs)?1:0)||(b.bandwidth||0)-(a.bandwidth||0))[0];
-  if(!audio)throw new Error('没有找到支持的 AAC 音轨');
+  if(!audio)throw new Error(t("no_supported_aac_audio_track_found"));
   const choices=videos.filter((t:any)=>/^avc1\./i.test(t.codecs||'')).sort((a:any,b:any)=>(b.height||0)-(a.height||0)||(b.bandwidth||0)-(a.bandwidth||0));
   const variants=choices.map((v:any,i:number)=>({id:'dash-'+i,url:track(v).url,label:`${v.height}p`,height:v.height,bandwidth:v.bandwidth,codecs:v.codecs,dash:{video:track(v),audio:track(audio)}}));
-  if(!variants.length)throw new Error('没有找到支持的 H.264 清晰度');
+  if(!variants.length)throw new Error(t("no_supported_h264_quality_found"));
   return {variants,duration:(data.timelength||data.dash.duration*1000)/1000};
 }

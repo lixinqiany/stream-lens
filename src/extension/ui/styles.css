@@ -28,3 +28,6 @@
 @media(prefers-reduced-motion:reduce){.sl-live *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .sl-other-list{padding:0 2px 14px}.sl-other-resource{display:flex;align-items:center;gap:9px;min-width:0;padding:10px 0;color:var(--sl-subtle);font-size:12px;border-bottom:1px solid var(--sl-line)}.sl-other-resource>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sl-other-list>p{font-size:11px;color:var(--sl-muted);margin:12px 0 0}
+
+/* Longer translations remain readable in narrow sidebars. */
+.sl-section-heading{gap:10px;flex-wrap:wrap}.sl-task-filters{flex-wrap:wrap}.sl-task-filters>button{flex:1 1 auto;justify-content:center}.sl-setting-row>div{min-width:0}.sl-setting-row strong,.sl-primary span{overflow-wrap:break-word}.sl-sheet-actions{flex-wrap:wrap}.sl-download-button{min-height:42px;height:auto;white-space:normal}.sl-player-status{white-space:nowrap}

@@ -1,3 +1,4 @@
+import {t} from '../../i18n';
 import {httpUrl} from '../model';
 import type {HlsPlaylist} from './parser';
 
@@ -5,13 +6,13 @@ import type {HlsPlaylist} from './parser';
 // the same media directory/file, allowing its signed parent path/CDN to rotate.
 export function renewedHlsUrl(html:string,oldUrl:string):string {
   const old=new URL(oldUrl),parts=old.pathname.split('/').filter(Boolean);
-  if(parts.length<3)throw new Error('无法确认这个视频的新地址，请刷新来源页面后重新选择视频');
+  if(parts.length<3)throw new Error(t("cannot_identify_a_new_url_for_this_video"));
   const identity=parts.slice(-3).join('/');
   const text=html.replaceAll('\\/','/').replaceAll('&amp;','&');
   const candidates=[...new Set((text.match(/https?:\/\/[^\s"'<>`\\]+?\.m3u8(?:\?[^\s"'<>`\\]*)?/gi)||[]).map(httpUrl).filter((u):u is string=>!!u))];
   const matches=candidates.filter(url=>new URL(url).pathname.split('/').filter(Boolean).slice(-3).join('/')===identity);
-  if(matches.length!==1)throw new Error('无法从来源网页确认这个视频的新地址，请刷新页面后重新选择视频');
-  if(matches[0]===oldUrl)throw new Error('来源网页仍返回原来的失效地址，请刷新页面播放后重新检测');
+  if(matches.length!==1)throw new Error(t("cannot_identify_a_new_video_url_from_its"));
+  if(matches[0]===oldUrl)throw new Error(t("the_page_still_returns_the_expired_url_refresh"));
   return matches[0];
 }
 export function sameHlsTimeline(old:HlsPlaylist,next:HlsPlaylist):boolean {

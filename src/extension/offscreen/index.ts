@@ -1,3 +1,4 @@
+import {t,setLanguage} from '../../i18n';
 import { type DownloadRecord, type DownloadState } from '../../core/model';
 import { allowedFetch, allowedResponse, PermissionError, ResourceAccessError } from '../../core/hls/fetch';
 import {checkDestination,openDestination} from '../../platform/destination';
@@ -24,11 +25,11 @@ async function progress(job:Job,patch:Partial<DownloadRecord>) {
   if(job.cancelled&&patch.state!=='cancelled')return;
   job.task={...job.task,...patch,updatedAt:Date.now()};
   const response=await chrome.runtime.sendMessage({type:'PROGRESS',task:{...patch,id:job.task.id}});
-  if(response?.ok===false)throw new Error(response.error||'无法更新任务记录');
+  if(response?.ok===false)throw new Error(response.error||t("cannot_update_the_download_record"));
 }
 async function waitActive(job:Job) {
   while(job.paused&&!job.cancelled)await new Promise<void>(resolve=>{job.wake=resolve;});
-  if(job.cancelled)throw new DOMException('任务已取消','AbortError');
+  if(job.cancelled)throw new DOMException(t("task_cancelled"),'AbortError');
 }
 async function fetchRetry(job:Job,url:string,range?:Segment['range'],limit?:number):Promise<{data:Uint8Array<ArrayBuffer>;url:string}> {
   for(let attempt=0;attempt<3;attempt++) {
@@ -37,7 +38,7 @@ async function fetchRetry(job:Job,url:string,range?:Segment['range'],limit?:numb
     try{return await allowedFetch(url,{signal,range,limit});}
     catch(error){if(job.cancelled)throw error;if(job.paused||signal.aborted){attempt--;continue;}if(error instanceof PermissionError||error instanceof ResourceAccessError||attempt===2)throw error;await new Promise(r=>setTimeout(r,500*2**attempt));}
   }
-  throw new Error('视频分片下载失败');
+  throw new Error(t("video_segment_download_failed"));
 }
 type OutputWriter={bytes:number;write(data:Uint8Array<ArrayBuffer>):Promise<void>;finish(minBytes:number):Promise<void>;abort():Promise<void>};
 async function openOutput(job:Job):Promise<OutputWriter> {
@@ -55,28 +56,28 @@ async function openOutput(job:Job):Promise<OutputWriter> {
   let closed=false;
   const output:OutputWriter={bytes:0,
     async write(data){
-      if(output.bytes+data.byteLength>MAX_BYTES)throw new Error('视频超过当前 8 GB 处理上限');
+      if(output.bytes+data.byteLength>MAX_BYTES)throw new Error(t("video_exceeds_the_current_8_gb_limit"));
       await writer.write(data);output.bytes+=data.byteLength;
     },
     async finish(minBytes){
       await waitActive(job);
-      if(output.bytes<minBytes)throw new Error('视频文件不完整，无法保存');
+      if(output.bytes<minBytes)throw new Error(t("video_file_is_incomplete_and_cannot_be_saved"));
       if(job.task.destinationId){
         const reservation=await chrome.runtime.sendMessage({type:'PREPARE_SAVE',id:job.task.id});
-        if(!reservation?.ok||!reservation.accepted)throw new DOMException('任务已停止保存','AbortError');
+        if(!reservation?.ok||!reservation.accepted)throw new DOMException(t("task_stopped_before_saving"),'AbortError');
         job.task.state='saving';await waitActive(job);
         await writer.close();closed=true;
         // The final file is now committed; background excludes cancellation
         // after PREPARE_SAVE so it cannot overwrite a successful close.
         const response=await chrome.runtime.sendMessage({type:'SAVED',id:job.task.id});
-        if(response?.ok===false)throw new Error(response.error||'无法记录保存结果');
+        if(response?.ok===false)throw new Error(response.error||t("cannot_record_the_save_result"));
       }else{
         await writer.close();closed=true;await waitActive(job);
         const file=await handle!.getFile();
         await progress(job,{state:'saving',speed:0});await waitActive(job);
         const url=URL.createObjectURL(file);outputs.set(job.task.id,{url,directory:directory!});
         const response=await chrome.runtime.sendMessage({type:'OUTPUT',id:job.task.id,url});
-        if(response?.ok===false)throw new Error(response.error||'视频文件保存失败');
+        if(response?.ok===false)throw new Error(response.error||t("video_file_could_not_be_saved"));
       }
     },
     async abort(){if(!closed)await writer.abort().catch(()=>{});if(directory)await directory.removeEntry(job.task.id+'.mp4').catch(()=>{});},
@@ -93,10 +94,10 @@ async function run(job:Job) {
     await progress(job,{state:'resolving',error:undefined,neededOrigins:undefined});
     let refreshes=0;
     async function renewUrl(){
-      if(refreshes++>=2)throw new Error('视频地址连续失效，请刷新来源网页后重新检测');
+      if(refreshes++>=2)throw new Error(t("video_urls_keep_expiring_refresh_the_source_page"));
       await waitActive(job);
       const reply=await chrome.runtime.sendMessage({type:'REFRESH_HLS',id:job.task.id,url:job.task.url});
-      if(!reply?.ok){if(reply?.origins?.length)throw new PermissionError(reply.origins);throw new Error(reply?.error||'无法更新视频地址');}
+      if(!reply?.ok){if(reply?.origins?.length)throw new PermissionError(reply.origins);throw new Error(reply?.error||t("cannot_renew_the_video_url"));}
       await waitActive(job);job.task.url=reply.value.url;
       await progress(job,{url:reply.value.url});
     }
@@ -104,36 +105,36 @@ async function run(job:Job) {
     try{playlistData=await fetchRetry(job,job.task.url,undefined,5_000_000);}
     catch(e){if(!(e instanceof ResourceAccessError)||e.status!==410)throw e;await renewUrl();playlistData=await fetchRetry(job,job.task.url,undefined,5_000_000);}
     let playlist=parseHls(new TextDecoder().decode(playlistData.data),playlistData.url);
-    if(playlist.type!=='media')throw new Error('请选择具体清晰度后重新下载');
-    if(!playlist.ended)throw new Error('本版暂不支持直播录制');
-    if(playlist.discontinuity)throw new Error('视频含时间线切换，本版暂不支持合并');
+    if(playlist.type!=='media')throw new Error(t("choose_a_specific_quality_and_retry"));
+    if(!playlist.ended)throw new Error(t("live_recording_is_not_supported"));
+    if(playlist.discontinuity)throw new Error(t("timeline_changes_in_this_video_are_not_supported_164"));
     // One map is supported; mid-stream map/config changes require a separate remux strategy.
     const maps=[...new Set(playlist.segments.map(s=>s.init?JSON.stringify(s.init):''))];
-    if(maps.length>1)throw new Error('视频初始化信息发生切换，本版暂不支持');
+    if(maps.length>1)throw new Error(t("changes_to_video_initialization_data_are_not_supported"));
     output=await openOutput(job);
     const keyCache=new Map<string,CryptoKey>();
     async function renewPlaylist(){
       await renewUrl();const data=await fetchRetry(job,job.task.url,undefined,5_000_000);
       const next=parseHls(new TextDecoder().decode(data.data),data.url);
-      if(!sameHlsTimeline(playlist,next)||next.type!=='media')throw new Error('新清单的分片或时间线发生变化，请从头重新下载');
+      if(!sameHlsTimeline(playlist,next)||next.type!=='media')throw new Error(t("playlist_segments_or_timeline_changed_download_from_the"));
       playlist=next;keyCache.clear();
     }
     async function readSegment(index:number,init=false):Promise<Uint8Array<ArrayBuffer>>{
       for(;;){
         const segment=playlist.type==='media'?playlist.segments[index]:undefined;
-        if(!segment)throw new Error('视频分片信息已变化');
-        const resource=init?segment.init:segment;if(!resource)throw new Error('初始化信息缺失');
+        if(!segment)throw new Error(t("video_segment_information_changed"));
+        const resource=init?segment.init:segment;if(!resource)throw new Error(t("initialization_data_is_missing"));
         try{
           let {data}=await fetchRetry(job,resource.url,resource.range);
-          if(segment.key){if(init&&!segment.key.iv)throw new Error('初始化分片缺少加密参数');data=await decrypt(data,segment.key,segment.sequence);}
+          if(segment.key){if(init&&!segment.key.iv)throw new Error(t("initialization_segment_encryption_parameters_are_missing"));data=await decrypt(data,segment.key,segment.sequence);}
           return data;
         }catch(e){if(!(e instanceof ResourceAccessError)||e.status!==410)throw e;await renewPlaylist();}
       }
     }
     async function decrypt(data:Uint8Array<ArrayBuffer>,key:HlsKey,sequence:number) {
       let cryptoKey=keyCache.get(key.url);
-      if(!cryptoKey){const {data:raw}=await fetchRetry(job,key.url,undefined,1024);if(raw.length!==16)throw new Error('视频密钥格式无效');cryptoKey=await crypto.subtle.importKey('raw',raw,'AES-CBC',false,['decrypt']);keyCache.set(key.url,cryptoKey);}
-      try{return new Uint8Array(await crypto.subtle.decrypt({name:'AES-CBC',iv:keyIv(key,sequence)},cryptoKey,data));}catch{throw new Error('视频分片解密失败，请重新获取资源');}
+      if(!cryptoKey){const {data:raw}=await fetchRetry(job,key.url,undefined,1024);if(raw.length!==16)throw new Error(t("invalid_video_key"));cryptoKey=await crypto.subtle.importKey('raw',raw,'AES-CBC',false,['decrypt']);keyCache.set(key.url,cryptoKey);}
+      try{return new Uint8Array(await crypto.subtle.decrypt({name:'AES-CBC',iv:keyIv(key,sequence)},cryptoKey,data));}catch{throw new Error(t("video_segment_decryption_failed_detect_the_video_again"));}
     }
     let bytes=0,lastTime=performance.now(),lastBytes=0;
     async function write(data:Uint8Array) {await output!.write(data as Uint8Array<ArrayBuffer>);}
@@ -149,11 +150,11 @@ async function run(job:Job) {
       await waitActive(job);
       const data=await readSegment(index);bytes+=data.byteLength;
       await waitActive(job);
-      if(!mode){if(data[0]===0x47){mode='ts';transmuxer=new TsTransmuxer();}else throw new Error('此视频分片格式暂不支持，请尝试其他清晰度');}
+      if(!mode){if(data[0]===0x47){mode='ts';transmuxer=new TsTransmuxer();}else throw new Error(t("this_segment_format_is_not_supported_try_another"));}
       if(mode==='ts') {for(const piece of transmuxer!.push(data))await write(piece);}
       else {
         const boxType=new TextDecoder().decode(data.slice(4,8));
-        if(!['styp','moof','sidx','emsg'].includes(boxType))throw new Error('视频分片格式不完整，无法合并');
+        if(!['styp','moof','sidx','emsg'].includes(boxType))throw new Error(t("video_segment_is_incomplete_and_cannot_be_merged"));
         await write(data);
       }
       const now=performance.now();const speed=(bytes-lastBytes)/Math.max(.001,(now-lastTime)/1000);lastTime=now;lastBytes=bytes;
@@ -164,7 +165,7 @@ async function run(job:Job) {
   }catch(error){
     await release(job.task.id);completed=false;
     const state:DownloadState=job.cancelled?'cancelled':'failed';
-    await progress(job,{state,speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:'下载失败，请重试',neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
+    await progress(job,{state,speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("download_failed_please_retry"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
     transmuxer?.dispose();if(!completed)await output?.abort();
     if(job.cancelled)await release(job.task.id);
@@ -177,7 +178,7 @@ async function runDash(job:Job) {
   try {
     await progress(job,{state:'resolving',error:undefined,neededOrigins:undefined});
     if(job.task.destinationId)await checkDestination(job.task.destinationId);
-    const source=job.task.dash;if(!source)throw new Error('DASH 音视频信息缺失，请重新解析');
+    const source=job.task.dash;if(!source)throw new Error(t("dash_track_information_is_missing_detect_the_video"));
     // All alternatives belong to the same representation and SegmentBase. Use
     // only API-provided URLs, with permission checked separately for each host.
     const chosen=new Map<DashTrack,string>();
@@ -196,7 +197,7 @@ async function runDash(job:Job) {
     const video=parseSidx(vindex.data,source.video.index.offset),audio=parseSidx(aindex.data,source.audio.index.offset);
     const segments=[...video.map(s=>({...s,track:source.video,id:merged.videoId})),...audio.map(s=>({...s,track:source.audio,id:merged.audioId}))].sort((a,b)=>a.time-b.time||a.id-b.id);
     const totalBytes=segments.reduce((n,s)=>n+s.range.length,0)+merged.data.length;
-    if(totalBytes>MAX_BYTES)throw new Error('视频超过当前 8 GB 处理上限');
+    if(totalBytes>MAX_BYTES)throw new Error(t("video_exceeds_the_current_8_gb_limit"));
     output=await openOutput(job);
     await output.write(merged.data);
     let bytes=merged.data.length,lastBytes=bytes,lastTime=performance.now();
@@ -212,7 +213,7 @@ async function runDash(job:Job) {
     await output.finish(merged.data.length+32);completed=true;
   }catch(error){
     await release(job.task.id);completed=false;
-    await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:'音视频下载失败',neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
+    await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("video_or_audio_download_failed"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
     if(!completed)await output?.abort();
     jobs.delete(job.task.id);void maybeClose();
@@ -222,7 +223,7 @@ async function runDash(job:Job) {
 async function runDirect(job:Job) {
   let output:OutputWriter|undefined,completed=false;
   try {
-    if(!job.task.destinationId)throw new Error('请先选择保存位置');
+    if(!job.task.destinationId)throw new Error(t("choose_a_save_location_first"));
     await checkDestination(job.task.destinationId);
     // A direct response restarts after pause. Abort only that attempt's
     // disk staging; the final target stays unchanged until successful close.
@@ -233,17 +234,17 @@ async function runDirect(job:Job) {
       try {
         const response=await allowedResponse(job.task.url,{signal:attemptSignal,stream:true});
         const total=Number(response.headers.get('content-length'))||undefined;
-        if(total&&total>MAX_BYTES)throw new Error('视频超过当前 8 GB 处理上限');
-        reader=response.body?.getReader();if(!reader)throw new Error('服务器没有返回视频内容');
+        if(total&&total>MAX_BYTES)throw new Error(t("video_exceeds_the_current_8_gb_limit"));
+        reader=response.body?.getReader();if(!reader)throw new Error(t("the_server_returned_no_video_data"));
         let bytes=0,lastBytes=0,lastTime=performance.now();
         for(;;){
           const {value,done}=await reader.read();if(done)break;
           attemptSignal.throwIfAborted();bytes+=value.byteLength;
-          if(bytes>MAX_BYTES)throw new Error('视频超过当前 8 GB 处理上限');
+          if(bytes>MAX_BYTES)throw new Error(t("video_exceeds_the_current_8_gb_limit"));
           await output.write(value as Uint8Array<ArrayBuffer>);
           const now=performance.now();if(now-lastTime>250){await progress(job,{bytes,totalBytes:total,speed:(bytes-lastBytes)/((now-lastTime)/1000)});lastTime=now;lastBytes=bytes;}
         }
-        if(!bytes||(total&&bytes!==total))throw new Error('视频文件长度不完整');
+        if(!bytes||(total&&bytes!==total))throw new Error(t("video_file_length_is_incomplete"));
         await progress(job,{bytes,totalBytes:total,speed:0});
         await waitActive(job);attemptSignal.throwIfAborted();
         break;
@@ -255,7 +256,7 @@ async function runDirect(job:Job) {
     await waitActive(job);await progress(job,{state:'saving',speed:0});
     await output!.finish(1);completed=true;
   }catch(error){
-    await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:'下载失败',neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
+    await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("download_failed"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
     if(!completed)await output?.abort();
     jobs.delete(job.task.id);void maybeClose();
@@ -270,17 +271,19 @@ async function maybeClose(){if(!jobs.size&&!outputs.size)void chrome.runtime.sen
 chrome.runtime.onMessage.addListener((message:RunnerMessage,sender,respond)=>{
   if(message?.target!=='runner'||sender.id!==chrome.runtime.id||sender.tab||(sender.url&&!sender.url.startsWith(chrome.runtime.getURL(''))))return;
   if(message.type==='PING'){respond({ok:true,jobs:[...jobs.keys()],outputs:outputs.size});return;}
+  if(message.type==='LANGUAGE'){setLanguage(message.language);respond({ok:true});return;}
   if(message.type==='RUN') {
-    if(jobs.has(message.task.id)){respond({ok:false,error:'此任务仍在处理，请稍后重试'});return;}
+    setLanguage(message.language);
+    if(jobs.has(message.task.id)){respond({ok:false,error:t("this_task_is_still_running_retry_later")});return;}
     const job:Job={task:message.task,controller:new AbortController(),paused:false,cancelled:false};jobs.set(job.task.id,job);
     job.done=release(job.task.id).then(()=>run(job));respond({ok:true});return;
   }
   if(message.type==='RELEASE'){void release(message.id).then(()=>respond({ok:true}));return true;}
   if(message.type==='CONTROL') {
-    const job=jobs.get(message.id);if(!job){if(message.action==='cancel'){void release(message.id).then(()=>respond({ok:true}));return true;}respond({ok:false,error:'任务执行器已中断，请重新下载'});return;}
-    if(message.action==='pause'&&!job.paused){if(['merging','saving'].includes(job.task.state)){respond({ok:false,error:'文件正在完成，请等待保存'});return;}job.paused=true;job.controller.abort();void progress(job,{state:'paused',speed:0}).catch(()=>{});}
+    const job=jobs.get(message.id);if(!job){if(message.action==='cancel'){void release(message.id).then(()=>respond({ok:true}));return true;}respond({ok:false,error:t("the_download_runner_stopped_start_the_download_again")});return;}
+    if(message.action==='pause'&&!job.paused){if(['merging','saving'].includes(job.task.state)){respond({ok:false,error:t("finishing_the_file_please_wait")});return;}job.paused=true;job.controller.abort();void progress(job,{state:'paused',speed:0}).catch(()=>{});}
     if(message.action==='resume'&&job.paused){job.paused=false;job.controller=new AbortController();job.wake?.();void progress(job,{state:job.task.totalSegments?'downloading':'resolving'}).catch(()=>{});}
-    if(message.action==='cancel'&&job.task.destinationId&&job.task.state==='saving'){respond({ok:false,error:'文件正在保存，请稍候'});return;}
+    if(message.action==='cancel'&&job.task.destinationId&&job.task.state==='saving'){respond({ok:false,error:t("saving_the_file_please_wait")});return;}
     if(message.action==='cancel'){job.cancelled=true;job.controller.abort();job.wake?.();void job.done?.then(()=>respond({ok:true}));return true;}
     respond({ok:true});return;
   }

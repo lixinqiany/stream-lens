@@ -97,3 +97,10 @@ test('3 GB direct stream uses bounded chunks, disk backpressure and zero OPFS co
   assert.equal(storageReads,reads);assert(!messages.some(m=>m.type==='OUTPUT'));assert(messages.some(m=>m.task?.bytes===3*1024**3));
  }finally{streaming=undefined;}
 });
+
+test('runner with runtime-only Chrome APIs uses the language supplied by background',async()=>{
+ denied=true;const t=task();await command({type:'RUN',task:t,language:'en'});await until(()=>state('failed'));
+ assert.equal(messages.find(m=>m.task?.state==='failed').task.error,'Allow access to the video resource site');
+ assert.deepEqual(messages.find(m=>m.task?.state==='failed').task.neededOrigins,['https://cdn.example/*']);denied=false;
+ await command({type:'LANGUAGE',language:'zh_CN'});
+});

@@ -21,8 +21,8 @@ export type DownloadRecord = {
   resolutionUrl?:string;
   destinationId?:string;
 };
-export type Preferences = { quality: 'best' | '720' | '480'; editFilename: boolean; hideAds: boolean; theme: 'dark' | 'light'; saveAs: boolean };
-export const defaults: Preferences = { quality: 'best', editFilename: false, hideAds: true, theme: 'dark', saveAs: true };
+export type Preferences = { quality: 'best' | '720' | '480'; editFilename: boolean; hideAds: boolean; theme: 'dark' | 'light'; saveAs: boolean; language?:import('../i18n').LanguagePreference };
+export const defaults: Preferences = { quality: 'best', editFilename: false, hideAds: true, theme: 'dark', saveAs: true, language:'auto' };
 export type PageCatalog = { pageUrl: string; assets: MediaAsset[]; documentKey: string; updatedAt: number; selection?: PlayerSelection; shortcutError?: {message: string; origins: string[]} };
 export type PendingSave = {id:string;filename:string;pageUrl:string;retryId?:string};
 export type Snapshot = { page: PageCatalog | null; tasks: DownloadRecord[]; preferences: Preferences; pendingSaves?:PendingSave[] };
@@ -37,7 +37,7 @@ export function httpUrl(value: unknown): string | undefined {
 export function originPattern(url: string) { const value=new URL(url);return value.protocol+'//'+value.hostname+'/*'; }
 export function safeFilename(title: string, quality: string, extension: string): string {
   const name = title.replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').replace(/^[. ]+|[. ]+$/g, '').slice(0, 110) || 'video';
-  return `${name}${quality === '原始文件' ? '' : '_' + quality}.${extension}`;
+  return `${name}${['原始文件','Original file'].includes(quality) ? '' : '_' + quality}.${extension}`;
 }
 export function taskProgress(task: DownloadRecord): number | undefined {
   if (task.state === 'completed') return 100;

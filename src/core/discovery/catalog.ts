@@ -1,3 +1,4 @@
+import {t} from '../../i18n';
 import { httpUrl, type MediaAsset, type VideoEvidence, type Protocol } from '../model.ts';
 export function protocolFor(url: string, contentType = ''): Protocol | undefined {
   const path = new URL(url).pathname.toLowerCase();
@@ -21,7 +22,7 @@ export function mergeEvidence(assets: MediaAsset[], evidence: VideoEvidence): Me
   const meaningfulDuration = Number.isFinite(evidence.duration) && (evidence.duration || 0) > 0 ? evidence.duration : undefined;
   const asset: MediaAsset = {
     ...existing, id: existing?.id || assetId(url), url, protocol: evidence.format === 'DASH' || existing?.protocol === 'DASH' ? 'DASH' : protocol,
-    title: (existing?.primary && !evidence.primary ? existing.title : evidence.title || existing?.title || '页面视频').slice(0, 300),
+    title: (existing?.primary && !evidence.primary ? existing.title : evidence.title || existing?.title || t("page_video")).slice(0, 300),
     pageUrl: httpUrl(evidence.pageUrl) || existing?.pageUrl || '',
     duration: meaningfulDuration ?? existing?.duration, width: evidence.width || existing?.width,
     height: evidence.height || existing?.height, playing: evidence.source === 'player' ? evidence.playing : existing?.playing || false,

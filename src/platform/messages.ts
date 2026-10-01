@@ -1,3 +1,4 @@
+import {t} from '../i18n';
 import type { DownloadRecord, MediaAsset, PlayerSelection, Preferences, Snapshot, VideoEvidence } from '../core/model';
 export type UiCommand =
   | { type: 'SNAPSHOT'; tabId: number }
@@ -14,12 +15,12 @@ export type SaveRequest = {tabId:number;assetId:string;variantId?:string;name?:s
 export type ContentMessage = {type:'EVIDENCE';pageUrl:string;evidence:VideoEvidence[];player?: PlayerSelection;select?: boolean};
 export type PlayerCommand = {type:'PLAYER_PANEL'; playerId:string} | {type:'PLAYER_RESOLVE';playerId:string} | {type:'PLAYER_START';playerId:string;assetId:string;variantId:string;filename?:string};
 export type PlayerResolveResult = {asset: MediaAsset; preferences: Preferences};
-export type RunnerMessage = { target:'runner';type:'RUN';task:DownloadRecord } | {target:'runner';type:'CONTROL';id:string;action:'pause'|'resume'|'cancel'} | {target:'runner';type:'PING'} | {target:'runner';type:'RELEASE';id:string};
+export type RunnerMessage = { target:'runner';type:'RUN';task:DownloadRecord;language?:Preferences['language'] } | {target:'runner';type:'LANGUAGE';language?:Preferences['language']} | {target:'runner';type:'CONTROL';id:string;action:'pause'|'resume'|'cancel'} | {target:'runner';type:'PING'} | {target:'runner';type:'RELEASE';id:string};
 export type WorkerMessage = {type:'PROGRESS';task:Partial<DownloadRecord>&{id:string}} | {type:'OUTPUT';id:string;url:string} | {type:'SAVED';id:string};
 export type Response<T> = {ok:true;value:T}|{ok:false;error:string;origins?:string[]};
 export async function command<T=Snapshot>(message:UiCommand):Promise<T> {
   const response=await chrome.runtime.sendMessage(message) as Response<T>;
-  if(!response?.ok) throw new Error(response?.error||'后台连接失败，请重新打开扩展');
+  if(!response?.ok) throw new Error(response?.error||t("connection_failed_reopen_the_extension"));
   return response.value;
 }
 export type StartResult = {id:string;duplicate:boolean;pending?:boolean;failed?:boolean};

@@ -1,3 +1,4 @@
+import {t} from '../../i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { defaults, httpUrl, originPattern, type Snapshot } from '../../core/model';
 import type { Response, UiCommand } from '../../platform/messages';
@@ -22,11 +23,11 @@ export function useExtension() {
       const response=await chrome.runtime.sendMessage({type:'SNAPSHOT',tabId:active?.id??-1}) as Response<Snapshot>;
       if(current!==generation.current)return;
       setTab(active);setAuthorized(granted);setAutomaticAccessState(automatic);
-      if(response?.ok)setSnapshot(response.value);else setError(response?.error||'无法读取后台任务');
+      if(response?.ok)setSnapshot(response.value);else setError(response?.error||t("cannot_read_download_records"));
       setReady(true);
       const key=active?.id+':'+active?.url;
       if(granted&&active?.id!==undefined&&scanned.current!==key){scanned.current=key;void chrome.runtime.sendMessage({type:'SCAN',tabId:active.id}).catch(()=>{});}
-    }catch(e){if(current===generation.current)setError(e instanceof Error?e.message:'后台连接失败');}
+    }catch(e){if(current===generation.current)setError(e instanceof Error?e.message:t("connection_failed"));}
   },[]);
   useEffect(()=>{
     void refresh();
@@ -39,12 +40,12 @@ export function useExtension() {
   },[refresh]);
   const send=useCallback(async<T=unknown>(message:UiCommand):Promise<T>=>{
     const response=await chrome.runtime.sendMessage(message) as Response<T>;
-    if(!response?.ok){setPendingOrigins(response?.origins||[]);throw Object.assign(new Error(response?.error||'操作失败'),{origins:response?.origins||[]});}
+    if(!response?.ok){setPendingOrigins(response?.origins||[]);throw Object.assign(new Error(response?.error||t("operation_failed")),{origins:response?.origins||[]});}
     await refresh();return response.value;
   },[refresh]);
   async function grant(origins?:string[]) {
     const requested=origins?.length?origins:tab?.url&&httpUrl(tab.url)?[originPattern(tab.url)]:[];
-    if(!requested.length)throw new Error('请先打开一个普通网页');
+    if(!requested.length)throw new Error(t("open_a_website_first"));
     await requestAccess(requested,async()=>{
       setPendingOrigins([]);setError('');await send({type:'SYNC_HOSTS'});
       if(tab?.id!==undefined&&httpUrl(tab.url)&&await chrome.permissions.contains({origins:[originPattern(tab.url!)]}))await send({type:'SCAN',tabId:tab.id,retryPermissions:true});

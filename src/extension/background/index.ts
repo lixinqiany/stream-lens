@@ -1,3 +1,4 @@
+import {t,watchLanguage,localizeQuality,browserLocale,setLanguage} from '../../i18n';
 import { defaults, httpUrl, originPattern, activeStates, clearableStates, runningStates, safeFilename, type DownloadRecord, type MediaAsset, type PageCatalog, type Preferences, type Snapshot, type VideoEvidence } from '../../core/model';
 import { mergeEvidence, protocolFor } from '../../core/discovery/catalog';
 import {playerKey, selectedAssets} from '../../core/discovery/selection';
@@ -22,6 +23,7 @@ const downloadJobs=new Set<number>();
 const resolutionCache=new ResolutionCache<MediaAsset>();
 const frameDocuments=new Map<string,string>();
 
+watchLanguage();
 chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true}).catch(()=>{});
 chrome.runtime.onInstalled.addListener(details=>{void upgradeSavePreferences(details.previousVersion).then(()=>initialize());});
 chrome.runtime.onStartup.addListener(()=>{void initialize();});
@@ -31,7 +33,7 @@ async function initialize() {
   const tasks=await getTasks();
   for(const task of tasks) {
     if(task.downloadId){await updateDownload(task.downloadId);continue;}
-    if(activeStates.includes(task.state)) await patchTask(task.id,{state:'failed',error:'浏览器已重启。重新下载会从头开始。',speed:0,outputUrl:undefined});
+    if(activeStates.includes(task.state)) await patchTask(task.id,{state:'failed',error:t("the_browser_restarted_retry_will_download_from_the"),speed:0,outputUrl:undefined});
   }
 }
 async function syncHosts() {
@@ -92,7 +94,7 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
     const documentId=(details as typeof details & {documentId?:string}).documentId;
     if(expected&&documentId&&expected!==documentId)return;
     const page=await getPage(details.tabId)||{pageUrl:tab.url,assets:[],documentKey:'',updatedAt:Date.now()};
-    page.assets=mergeEvidence(page.assets,{url:details.url,title:tab.title||'页面视频',pageUrl:tab.url,width:0,height:0,playing:false,primary:false,protected:false,source:'network',contentType,size});
+    page.assets=mergeEvidence(page.assets,{url:details.url,title:tab.title||t("page_video"),pageUrl:tab.url,width:0,height:0,playing:false,primary:false,protected:false,source:'network',contentType,size});
     page.updatedAt=Date.now();await setPage(details.tabId,page);
   }).catch(()=>{});
 },{urls:['http://*/*','https://*/*']},['responseHeaders']);
@@ -129,8 +131,8 @@ async function acceptEvidence(message:ContentMessage,sender:chrome.runtime.Messa
   if(page.selection){const selection=page.selection;for(const asset of selectedAssets(page.assets,selection).slice(0,3))if(!asset.protected&&(!asset.resolutionState||(asset.resolutionState==='loading'&&!resolutionCache.hasPending(resolutionKey(tabId,page,asset.id)))))void resolveAsset(tabId,asset.id).catch(()=>{});}
 }
 async function scan(tabId:number,retryPermissions=false) {
-  const tab=await chrome.tabs.get(tabId);if(!httpUrl(tab.url))throw new Error('此浏览器页面无法读取，请打开普通网页');
-  if(!await chrome.permissions.contains({origins:[originPattern(tab.url!)]}))throw new Error('请先允许访问当前站点');
+  const tab=await chrome.tabs.get(tabId);if(!httpUrl(tab.url))throw new Error(t("this_browser_page_cannot_be_accessed_open_a"));
+  if(!await chrome.permissions.contains({origins:[originPattern(tab.url!)]}))throw new Error(t("allow_access_to_this_site_first"));
   await chrome.scripting.executeScript({target:{tabId,allFrames:true},world:'MAIN',files:['probe.js']});
   await chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']});
   if(retryPermissions){const operation=pageQueue.then(async()=>{const page=await getPage(tabId);if(page){delete page.shortcutError;page.assets=page.assets.map(a=>a.resolutionState==='failed'?{...a,resolutionState:undefined,resolutionError:undefined,resolutionOrigins:undefined}:a);await setPage(tabId,page);}});pageQueue=operation.catch(()=>{});await operation;}
@@ -139,35 +141,35 @@ async function scan(tabId:number,retryPermissions=false) {
 function resolutionIdentity(page:NonNullable<Awaited<ReturnType<typeof getPage>>>){return JSON.stringify([page.documentKey,page.pageUrl,page.selection?.playerId,page.selection?.sourceKey]);}
 function resolutionKey(tabId:number,page:NonNullable<Awaited<ReturnType<typeof getPage>>>,assetId:string){return tabId+'|'+resolutionIdentity(page)+'|'+assetId;}
 async function resolveAsset(tabId:number,assetId:string,force=false):Promise<MediaAsset> {
-  const page=await getPage(tabId);const asset=page?.assets.find(a=>a.id===assetId);if(!page||!asset)throw new Error('视频已变化，请重新选择');
+  const page=await getPage(tabId);const asset=page?.assets.find(a=>a.id===assetId);if(!page||!asset)throw new Error(t("the_video_changed_select_it_again"));
   const identity=resolutionIdentity(page);
   const result=await resolutionCache.get(resolutionKey(tabId,page,asset.id),()=>resolveAssetNow(tabId,assetId,identity),force);
   if(asset.resolutionState!=='ready')await patchResolution(tabId,assetId,identity,{variants:result.variants,duration:result.duration,resolutionState:'ready',resolutionError:undefined,resolutionOrigins:undefined,resolvedAt:result.resolvedAt});
   return result;
 }
 async function resolveAssetNow(tabId:number,assetId:string,identity:string):Promise<MediaAsset> {
-  const page=await getPage(tabId);const asset=page?.assets.find(a=>a.id===assetId);if(!asset||!page||resolutionIdentity(page)!==identity)throw new Error('该页面资源已变化，请重新检测');
-  if(asset.protected)throw new Error('此视频受保护，无法保存');
+  const page=await getPage(tabId);const asset=page?.assets.find(a=>a.id===assetId);if(!asset||!page||resolutionIdentity(page)!==identity)throw new Error(t("page_resources_changed_detect_them_again"));
+  if(asset.protected)throw new Error(t("this_video_is_protected_and_cannot_be_saved"));
   await patchResolution(tabId,assetId,identity,{resolutionState:'loading',resolutionError:undefined,resolutionOrigins:undefined});
   try{
   if(asset.protocol==='DASH') {
     await ensureBiliHeaders();
-    let endpoint=isBiliEndpoint(asset.pageUrl,asset.url)?asset.url:biliEndpoint(asset.pageUrl);if(!endpoint)throw new Error('本版暂不支持此站点的 DASH 视频');
+    let endpoint=isBiliEndpoint(asset.pageUrl,asset.url)?asset.url:biliEndpoint(asset.pageUrl);if(!endpoint)throw new Error(t("dash_downloads_from_this_site_are_not_supported"));
     async function json(url:string){const fetched=await allowedFetch(url,{limit:5_000_000});return JSON.parse(new TextDecoder().decode(fetched.data));}
     if(endpoint.includes('/pgc/view/web/season')) {
-      const season=await json(endpoint);if(season.code!==0)throw new Error('无法读取番剧分集信息，请在网页正常播放后重试');
+      const season=await json(endpoint);if(season.code!==0)throw new Error(t("cannot_read_episode_information_play_the_video_on"));
       const binding=asset.playerBindings;
       const related=page!.assets.filter(a=>a.id===asset.id||a.playerBindings?.some(b=>binding?.some(s=>s.playerId===b.playerId&&s.sourceKey===b.sourceKey)));
       const cids=related.map(a=>a.url.match(/\/upgcxcode\/\d+\/\d+\/(\d+)\//)?.[1]).filter(Boolean);
       const episodes=season.result?.episodes||[];
       const episode=episodes.find((e:any)=>cids.includes(String(e.cid)));
-      if(!Number.isSafeInteger(episode?.id)||episode.id<=0)throw new Error('尚未确认当前播放的集数，请刷新网页，再点击视频画面或播放按钮后重试');
+      if(!Number.isSafeInteger(episode?.id)||episode.id<=0)throw new Error(t("the_current_episode_is_unknown_refresh_the_page"));
       endpoint=biliEndpoint(asset.pageUrl,episode.id)!;
     }
     if(endpoint.includes('/x/web-interface/view')) {
-      const view=await json(endpoint);if(view.code!==0)throw new Error('无法读取视频信息，请在网页正常播放后重试');
+      const view=await json(endpoint);if(view.code!==0)throw new Error(t("cannot_read_video_information_play_it_on_its"));
       const p=Number(new URL(asset.pageUrl).searchParams.get('p')||1);const cid=view.data?.pages?.[p-1]?.cid||view.data?.cid;
-      if(!Number.isSafeInteger(cid)||cid<=0)throw new Error('视频分集信息无效');
+      if(!Number.isSafeInteger(cid)||cid<=0)throw new Error(t("invalid_episode_information"));
       endpoint=biliPlayEndpoint(view.data.bvid,cid);
     }
     const parsed=parseBiliPlayResponse(await json(endpoint));asset.variants=parsed.variants;asset.duration=parsed.duration;
@@ -176,14 +178,14 @@ async function resolveAssetNow(tabId:number,assetId:string,identity:string):Prom
     const playlist=parseHls(new TextDecoder().decode(fetched.data),fetched.url);
     if(playlist.type==='master') {
       const variants=playlist.variants.filter(v=>!v.audioGroup||!playlist.externalAudio.includes(v.audioGroup));
-      if(!variants.length)throw new Error('此视频需要独立音轨合并，本版暂不支持');
-      asset.variants=variants.map((v,i)=>({...v,id:'variant-'+i,label:v.height?`${v.height}p`:v.bandwidth?`${(v.bandwidth/1e6).toFixed(1)} Mbps`:'原始画质'}));
+      if(!variants.length)throw new Error(t("this_video_needs_a_separate_audio_track_that"));
+      asset.variants=variants.map((v,i)=>({...v,id:'variant-'+i,label:v.height?`${v.height}p`:v.bandwidth?`${(v.bandwidth/1e6).toFixed(1)} Mbps`:t("original_quality")}));
     } else {
-      if(!playlist.ended)throw new Error('当前为直播视频，本版只支持点播下载');
-      if(playlist.discontinuity)throw new Error('此视频含时间线切换，本版暂不支持合并');
-      asset.variants=[{id:'original',url:fetched.url,label:asset.height?`${asset.height}p · 当前源`:'原始画质'}];asset.duration=playlist.duration;
+      if(!playlist.ended)throw new Error(t("live_recording_is_not_supported_choose_an_ondemand"));
+      if(playlist.discontinuity)throw new Error(t("timeline_changes_in_this_video_are_not_supported"));
+      asset.variants=[{id:'original',url:fetched.url,label:asset.height?t("p_current_source",[asset.height]):t("original_quality")}];asset.duration=playlist.duration;
     }
-  } else asset.variants=[{id:'original',url:asset.url,label:asset.height?`${asset.height}p`:'原始文件'}];
+  } else asset.variants=[{id:'original',url:asset.url,label:asset.height?`${asset.height}p`:t("original_file")}];
   const resolvedAt=Date.now();
   await pageQueue;
   await patchResolution(tabId,assetId,identity,{variants:asset.variants,duration:asset.duration,resolutionState:'ready',resolutionError:undefined,resolutionOrigins:undefined,resolvedAt});
@@ -195,12 +197,14 @@ async function patchResolution(tabId:number,assetId:string,identity:string,patch
 }
 async function ensureRunner() {
   if(await chrome.offscreen.hasDocument())return;
-  if(!offscreenCreation)offscreenCreation=chrome.offscreen.createDocument({url:'offscreen.html',reasons:[chrome.offscreen.Reason.BLOBS],justification:'下载视频并写入临时文件，生成 Blob 或写入用户选择的位置，关闭侧栏后继续处理'}).finally(()=>{offscreenCreation=undefined;});
+  if(!offscreenCreation)offscreenCreation=chrome.offscreen.createDocument({url:'offscreen.html',reasons:[chrome.offscreen.Reason.BLOBS],justification:t("download_and_process_video_locally_using_a_selected")}).finally(()=>{offscreenCreation=undefined;});
   await offscreenCreation;
 }
 async function tellRunner(message:RunnerMessage) {
+  // Offscreen exposes runtime only, so resolve browser language here.
+  if((message.type==='RUN'||message.type==='LANGUAGE')&&(!message.language||message.language==='auto'))message={...message,language:browserLocale()};
   const response=await chrome.runtime.sendMessage(message);
-  if(response?.ok!==true)throw new Error(response?.error||'后台视频处理未响应');
+  if(response?.ok!==true)throw new Error(response?.error||t("the_video_processing_service_did_not_respond"));
   return response;
 }
 async function openSaveRequest(request:SaveRequest) {
@@ -221,27 +225,27 @@ async function openSaveRequest(request:SaveRequest) {
   return {id:requestId,duplicate:false,pending:true};
 }
 async function handleSave(command:SaveCommand) {
-  if(!/^[a-zA-Z0-9-]{1,80}$/.test(command.requestId))throw new Error('保存请求无效');
+  if(!/^[a-zA-Z0-9-]{1,80}$/.test(command.requestId))throw new Error(t("invalid_save_request"));
   const key='save:'+command.requestId;
   const request=(await chrome.storage.session.get(key))[key] as SaveRequest|undefined;
   if(command.type==='SAVE_CANCEL'){
     const operation=startQueue.then(async()=>{const current=(await chrome.storage.session.get(key))[key] as SaveRequest|undefined;if(!current?.result){await chrome.storage.session.remove(key);if(current?.windowId!==undefined)await chrome.windows.remove(current.windowId).catch(()=>{});}});startQueue=operation.then(()=>{},()=>{});return operation;
   }
-  if(!request||(!request.result&&Date.now()-request.createdAt>30*60*1000))throw new Error('保存请求已过期，请重新下载');
+  if(!request||(!request.result&&Date.now()-request.createdAt>30*60*1000))throw new Error(t("save_request_expired_start_the_download_again"));
   if(command.type==='SAVE_INFO')return request;
-  if(command.type==='SAVE_FOCUS'){if(request.windowId===undefined)throw new Error('保存窗口已关闭，请重新下载');await chrome.windows.update(request.windowId,{state:'normal',focused:true});return;}
+  if(command.type==='SAVE_FOCUS'){if(request.windowId===undefined)throw new Error(t("save_window_closed_start_the_download_again"));await chrome.windows.update(request.windowId,{state:'normal',focused:true});return;}
   if(request.result)return request.result;
-  if(!/^[a-zA-Z0-9-]{1,80}$/.test(command.destinationId)||!command.filename||command.filename.length>255||/[\\/\x00-\x1f]/.test(command.filename))throw new Error('保存文件名无效');
-  if(!command.filename.toLowerCase().endsWith(request.filename.toLowerCase().endsWith('.webm')?'.webm':'.mp4'))throw new Error('请保留视频文件扩展名');
+  if(!/^[a-zA-Z0-9-]{1,80}$/.test(command.destinationId)||!command.filename||command.filename.length>255||/[\\/\x00-\x1f]/.test(command.filename))throw new Error(t("invalid_filename"));
+  if(!command.filename.toLowerCase().endsWith(request.filename.toLowerCase().endsWith('.webm')?'.webm':'.mp4'))throw new Error(t("keep_the_video_file_extension"));
   const destination={id:command.destinationId,filename:command.filename};
   const operation=startQueue.then(async()=>{
     // A repeated commit (including a lost response) must never launch twice.
     const latest=(await chrome.storage.session.get(key))[key] as SaveRequest|undefined;
-    if(!latest)throw new Error('保存请求已取消');if(latest.result)return latest.result;
+    if(!latest)throw new Error(t("save_request_was_cancelled"));if(latest.result)return latest.result;
     const result=await (async()=>{
-    if(request.retryId){const retry=(await getTasks()).find(t=>t.id===request.retryId);if(retry&&activeStates.includes(retry.state)&&retry.destinationId===destination.id)return {id:retry.id,duplicate:false};if(!retry||!['failed','cancelled'].includes(retry.state))throw new Error('任务状态已变化，请返回下载任务');return await taskCommand(request.retryId,'retry',destination)||{id:request.retryId,duplicate:false};}
+    if(request.retryId){const retry=(await getTasks()).find(t=>t.id===request.retryId);if(retry&&activeStates.includes(retry.state)&&retry.destinationId===destination.id)return {id:retry.id,duplicate:false};if(!retry||!['failed','cancelled'].includes(retry.state))throw new Error(t("task_state_changed_return_to_downloads"));return await taskCommand(request.retryId,'retry',destination)||{id:request.retryId,duplicate:false};}
     const tab=await chrome.tabs.get(request.tabId);
-    if(tab.url!==request.pageUrl)throw new Error('页面已切换，请重新选择视频');
+    if(tab.url!==request.pageUrl)throw new Error(t("the_page_changed_select_the_video_again"));
     return startTask(request.tabId,request.assetId,request.variantId,request.name,request.expectedPlayer,destination);
     })();
     await chrome.storage.session.set({[key]:{...request,result}});return result;
@@ -266,31 +270,31 @@ async function availableDestination(id:string,excludeTask?:string){
   for(const task of await getTasks()){
     if(task.id===excludeTask||!task.destinationId||!activeStates.includes(task.state))continue;
     const other=await checkDestination(task.destinationId).catch(()=>undefined);
-    if(other&&await selected.isSameEntry(other))throw new Error('此文件正在被另一个任务使用，请选择其他文件名');
+    if(other&&await selected.isSameEntry(other))throw new Error(t("another_download_is_using_this_file_choose_a"));
   }
 }
 async function startTask(tabId:number,assetId:string,variantId?:string,name?:string,expectedPlayer?:{id:string;source:string},destination?:{id:string;filename:string}) {
   const asset=await resolveAsset(tabId,assetId,true);
-  const variant=asset.variants?.find(v=>v.id===(variantId||asset.variants?.[0]?.id));if(!variant)throw new Error('请选择有效清晰度');
+  const variant=asset.variants?.find(v=>v.id===(variantId||asset.variants?.[0]?.id));if(!variant)throw new Error(t("select_a_valid_quality"));
   const origins=[...new Set([variant.url,...variant.dash?[variant.dash.audio.url]:[]].map(originPattern))];
   const missing:string[]=[];for(const origin of origins)if(!await chrome.permissions.contains({origins:[origin]}))missing.push(origin);if(missing.length)throw new PermissionError(missing);
   const tasks=await getTasks();
-  if(expectedPlayer){await pageQueue;const current=await getPage(tabId);if(current?.selection?.playerId!==expectedPlayer.id||current.selection.sourceKey!==expectedPlayer.source)throw new Error('视频已切换，请重新选择');}
+  if(expectedPlayer){await pageQueue;const current=await getPage(tabId);if(current?.selection?.playerId!==expectedPlayer.id||current.selection.sourceKey!==expectedPlayer.source)throw new Error(t("the_video_changed_select_it_again_105"));}
   const duplicate=tasks.find(t=>t.url===variant.url&&activeStates.includes(t.state));if(duplicate)return{id:duplicate.id,duplicate:!destination||duplicate.destinationId!==destination.id};
-  if((['HLS','DASH'].includes(asset.protocol)||destination||(await getPreferences()).saveAs)&&tasks.filter(t=>(['HLS','DASH'].includes(t.protocol)||t.destinationId)&&activeStates.includes(t.state)).length>=2)throw new Error('最多同时处理两个流式视频，请等待或取消其他任务');
+  if((['HLS','DASH'].includes(asset.protocol)||destination||(await getPreferences()).saveAs)&&tasks.filter(t=>(['HLS','DASH'].includes(t.protocol)||t.destinationId)&&activeStates.includes(t.state)).length>=2)throw new Error(t("up_to_two_streaming_downloads_can_run_at"));
   const extension=asset.protocol==='WEBM'?'webm':'mp4';
-  const filename=safeFilename(name?.trim()||asset.title,variant.label.replace(/ · 当前源$/,''),extension);
+  const filename=safeFilename(name?.trim()||asset.title,localizeQuality(variant.label),extension);
   if(!destination&&(await getPreferences()).saveAs)return openSaveRequest({tabId,assetId,variantId:variant.id,name,filename,pageUrl:asset.pageUrl,expectedPlayer,createdAt:Date.now()});
   if(destination)await availableDestination(destination.id);
   const task:DownloadRecord={id:crypto.randomUUID(),assetId,title:asset.title,filename:destination?.filename||filename,destinationId:destination?.id,pageUrl:asset.pageUrl,url:variant.url,protocol:asset.protocol,dash:variant.dash,resolutionUrl:asset.protocol==='DASH'&&isBiliEndpoint(asset.pageUrl,asset.url)?asset.url:undefined,quality:variant.label,state:'resolving',createdAt:Date.now(),updatedAt:Date.now(),bytes:0,segments:0,speed:0};
   await mutateTasks(current=>({tasks:[task,...current],value:undefined}));
   try {
-    if(['HLS','DASH'].includes(asset.protocol)||task.destinationId){await ensureRunner();await tellRunner({target:'runner',type:'RUN',task});}
+    if(['HLS','DASH'].includes(asset.protocol)||task.destinationId){await ensureRunner();await tellRunner({target:'runner',type:'RUN',task,language:(await getPreferences()).language});}
     else {const downloadId=await chrome.downloads.download({url:variant.url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(task.id,{downloadId,state:'downloading'});await updateDownload(downloadId);}
   }catch(error){await patchTask(task.id,{state:'failed',error:errorText(error)});if(destination)return {id:task.id,duplicate:false,failed:true};throw error;}
   return{id:task.id,duplicate:false};
 }
-function errorText(error:unknown) {return error instanceof Error?error.message:'操作失败，请重试';}
+function errorText(error:unknown) {return error instanceof Error?error.message:t("operation_failed_please_retry");}
 async function updateDownload(downloadId:number) {
   if(downloadJobs.has(downloadId))return;downloadJobs.add(downloadId);
   try {
@@ -302,7 +306,7 @@ async function updateDownload(downloadId:number) {
     const totalBytes=item.totalBytes>0?item.totalBytes:undefined;
     if(task.state===state&&task.bytes===bytes&&task.totalBytes===totalBytes)return;
     const elapsed=Math.max(.001,(Date.now()-task.updatedAt)/1000);
-    await patchTask(task.id,{state,bytes,totalBytes,speed:state==='downloading'?Math.max(0,(item.bytesReceived-task.bytes)/elapsed):0,error:state==='failed'?`文件保存失败：${item.error||'请重试'}`:undefined});
+    await patchTask(task.id,{state,bytes,totalBytes,speed:state==='downloading'?Math.max(0,(item.bytesReceived-task.bytes)/elapsed):0,error:state==='failed'?t("file_save_failed",[item.error||t("please_retry")]):undefined});
     if(['completed','failed','cancelled'].includes(state)&&['HLS','DASH'].includes(task.protocol)){await tellRunner({target:'runner',type:'RELEASE',id:task.id}).catch(()=>{});await patchTask(task.id,{outputUrl:undefined});}
   }finally{downloadJobs.delete(downloadId);}
 }
@@ -311,44 +315,44 @@ chrome.alarms.create('reconcile',{periodInMinutes:1});
 chrome.alarms.onAlarm.addListener(()=>{void getTasks().then(tasks=>Promise.all(tasks.filter(t=>t.downloadId&&activeStates.includes(t.state)).map(t=>updateDownload(t.downloadId!))));});
 
 async function taskCommand(id:string,action:Extract<UiCommand,{type:'TASK'}>['action'],destination?:{id:string;filename:string}) {
-  const task=(await getTasks()).find(t=>t.id===id);if(!task)throw new Error('下载记录不存在');
-  if(action==='show'){if(task.downloadId===undefined||task.state!=='completed')throw new Error('文件尚未保存');await chrome.downloads.show(task.downloadId);return;}
+  const task=(await getTasks()).find(t=>t.id===id);if(!task)throw new Error(t("download_record_not_found"));
+  if(action==='show'){if(task.downloadId===undefined||task.state!=='completed')throw new Error(t("the_file_has_not_been_saved_yet"));await chrome.downloads.show(task.downloadId);return;}
   if(action==='source'){if(httpUrl(task.pageUrl))await chrome.tabs.create({url:task.pageUrl});return;}
   if(action==='retry') {
     if(!['failed','cancelled'].includes(task.state))return;
     if(!destination&&(task.destinationId||(await getPreferences()).saveAs))return openSaveRequest({tabId:-1,assetId:task.assetId,filename:task.filename,pageUrl:task.pageUrl,retryId:id,createdAt:Date.now()});
     if(destination)await availableDestination(destination.id);
-    if((['HLS','DASH'].includes(task.protocol)||destination)&&(await getTasks()).filter(t=>(['HLS','DASH'].includes(t.protocol)||t.destinationId)&&activeStates.includes(t.state)).length>=2)throw new Error('请先结束其他流式下载');
+    if((['HLS','DASH'].includes(task.protocol)||destination)&&(await getTasks()).filter(t=>(['HLS','DASH'].includes(t.protocol)||t.destinationId)&&activeStates.includes(t.state)).length>=2)throw new Error(t("finish_another_streaming_download_first"));
     if(!await chrome.permissions.contains({origins:[originPattern(task.url)]}))throw new PermissionError([originPattern(task.url)]);
     let refreshed:Partial<DownloadRecord>={};
     if(task.protocol==='HLS'&&/410/.test(task.error||''))refreshed={url:await refreshHls(task)};
     if(task.protocol==='DASH'&&biliEndpoint(task.pageUrl)){
       await ensureBiliHeaders();
       const endpoint=task.resolutionUrl&&isBiliEndpoint(task.pageUrl,task.resolutionUrl)?task.resolutionUrl:biliEndpoint(task.pageUrl)!;
-      if(endpoint.includes('/pgc/view/web/season')||endpoint.includes('/x/web-interface/view'))throw new Error('请回到来源页面重新选择当前视频，获取新的下载地址');
+      if(endpoint.includes('/pgc/view/web/season')||endpoint.includes('/x/web-interface/view'))throw new Error(t("return_to_the_source_page_and_select_the"));
       const data=await allowedFetch(endpoint,{limit:5_000_000});
       const parsed=parseBiliPlayResponse(JSON.parse(new TextDecoder().decode(data.data)));
-      const variant=parsed.variants.find(v=>v.label===task.quality);
-      if(!variant)throw new Error(`当前账号未返回原来的 ${task.quality}，请在来源页面重新选择可用清晰度`);
+      const variant=parsed.variants.find(v=>localizeQuality(v.label)===localizeQuality(task.quality));
+      if(!variant)throw new Error(t("your_account_no_longer_offers_select_an_available",[task.quality]));
       refreshed={url:variant.url,dash:variant.dash,resolutionUrl:endpoint};
       if(!await chrome.permissions.contains({origins:[originPattern(variant.url),originPattern(variant.dash!.audio.url)]}))throw new PermissionError([originPattern(variant.url),originPattern(variant.dash!.audio.url)]);
     }
     const reset:DownloadRecord={...task,...refreshed,destinationId:destination?.id,filename:destination?.filename||task.filename,state:'resolving',bytes:0,segments:0,totalSegments:undefined,totalBytes:undefined,downloadId:undefined,error:undefined,neededOrigins:undefined,speed:0,updatedAt:Date.now()};
     await patchTask(id,reset);
     if(task.destinationId&&task.destinationId!==reset.destinationId)await forgetDestination(task.destinationId).catch(()=>{});
-    if(['HLS','DASH'].includes(task.protocol)||reset.destinationId){try{await ensureRunner();await tellRunner({target:'runner',type:'RUN',task:reset});}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
+    if(['HLS','DASH'].includes(task.protocol)||reset.destinationId){try{await ensureRunner();await tellRunner({target:'runner',type:'RUN',task:reset,language:(await getPreferences()).language});}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
     else{try{const downloadId=await chrome.downloads.download({url:task.url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(id,{downloadId,state:'downloading'});await updateDownload(downloadId);}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
     return;
   }
   if(!activeStates.includes(task.state))return;
-  if(task.destinationId&&task.state==='saving')throw new Error('文件正在保存，请稍候');
+  if(task.destinationId&&task.state==='saving')throw new Error(t("saving_the_file_please_wait"));
   if(task.downloadId){if(action==='pause')await chrome.downloads.pause(task.downloadId);if(action==='resume')await chrome.downloads.resume(task.downloadId);if(action==='cancel'){await patchTask(id,{state:'cancelled'});await chrome.downloads.cancel(task.downloadId);}await updateDownload(task.downloadId);}
   else if(['HLS','DASH'].includes(task.protocol)||task.destinationId) {
     if(action==='cancel'){
       const accepted=await mutateTasks(tasks=>{const current=tasks.find(t=>t.id===id);const accepted=!!current&&activeStates.includes(current.state)&&!(current.destinationId&&current.state==='saving');return {tasks:tasks.map(t=>t.id===id&&accepted?{...t,state:'cancelled',speed:0,updatedAt:Date.now()}:t),value:accepted};});
-      if(!accepted)throw new Error('文件正在保存，请稍候');
+      if(!accepted)throw new Error(t("saving_the_file_please_wait"));
     }
-    if(!await chrome.offscreen.hasDocument()){if(action==='cancel')return;await patchTask(id,{state:'failed',error:'后台任务已中断，请从头重试'});return;}
+    if(!await chrome.offscreen.hasDocument()){if(action==='cancel')return;await patchTask(id,{state:'failed',error:t("the_download_service_stopped_retry_from_the_beginning")});return;}
     await tellRunner({target:'runner',type:'CONTROL',id,action});
   }
 }
@@ -372,19 +376,20 @@ async function handleUi(command:UiCommand):Promise<unknown> {
     }
     case 'CLEAR':{const removed=await mutateTasks(tasks=>({tasks:tasks.filter(t=>!clearableStates.includes(t.state)),value:tasks.filter(t=>clearableStates.includes(t.state))}));for(const task of removed)if(task.destinationId)await forgetDestination(task.destinationId).catch(()=>{});return;}
     case 'PREFERENCES':{const prefs=await getPreferences();const p=command.patch;
+      if(['auto','zh_CN','en'].includes(p.language||''))prefs.language=p.language!;
       if(['best','720','480'].includes(p.quality||''))prefs.quality=p.quality!;if(['dark','light'].includes(p.theme||''))prefs.theme=p.theme!;
       for(const key of ['editFilename','hideAds','saveAs'] as const)if(typeof p[key]==='boolean')prefs[key]=p[key]!;
-      await chrome.storage.local.set({preferences:prefs});return prefs;
+      await chrome.storage.local.set({preferences:prefs});setLanguage(prefs.language);if(p.language&&await chrome.offscreen.hasDocument())await tellRunner({target:"runner",type:"LANGUAGE",language:prefs.language}).catch(()=>{});return prefs;
     }
   }
 }
 async function handleWorker(message:WorkerMessage) {
   const id=message.type==='PROGRESS'?message.task?.id:message.id;if(typeof id!=='string')return;
   const task=(await getTasks()).find(t=>t.id===id);if(!task||['cancelled','completed'].includes(task.state)){if(message.type==='OUTPUT')await tellRunner({target:'runner',type:'RELEASE',id}).catch(()=>{});return;}
-  if(message.type==='SAVED'){if(!task.destinationId||task.state!=='saving')throw new Error('保存任务无效');await patchTask(id,{state:'completed',speed:0,error:undefined});await forgetDestination(task.destinationId).catch(()=>{});return;}
+  if(message.type==='SAVED'){if(!task.destinationId||task.state!=='saving')throw new Error(t("invalid_save_task"));await patchTask(id,{state:'completed',speed:0,error:undefined});await forgetDestination(task.destinationId).catch(()=>{});return;}
   if(message.type==='PROGRESS') {await mutateTasks(tasks=>({tasks:tasks.map(current=>current.id===id&&!['cancelled','completed','failed'].includes(current.state)&&!(current.destinationId&&current.state==='saving'&&message.task.state&&message.task.state!=='failed')?{...current,...message.task,id:current.id,updatedAt:Date.now()}:current),value:undefined}));return;}
   if(message.type==='OUTPUT') {
-    if(!message.url.startsWith('blob:chrome-extension://'+chrome.runtime.id+'/'))throw new Error('无效的视频文件来源');
+    if(!message.url.startsWith('blob:chrome-extension://'+chrome.runtime.id+'/'))throw new Error(t("invalid_video_file_source"));
     try {
       const accepted=await mutateTasks(tasks=>{const current=tasks.find(t=>t.id===id);const accepted=!!current&&activeStates.includes(current.state);return {tasks:tasks.map(t=>t.id===id&&accepted?{...t,state:'saving',outputUrl:message.url,updatedAt:Date.now()}:t),value:accepted};});
       if(!accepted){await tellRunner({target:'runner',type:'RELEASE',id});return;}
@@ -395,26 +400,26 @@ async function handleWorker(message:WorkerMessage) {
 }
 async function handlePlayer(command:PlayerCommand,sender:chrome.runtime.MessageSender):Promise<unknown> {
   const tabId=sender.tab?.id;
-  if(tabId===undefined||!httpUrl(sender.url)||typeof command.playerId!=='string'||command.playerId.length>100)throw new Error('无效的视频请求');
-  if(!await chrome.permissions.contains({origins:[originPattern(sender.url!)]}))throw new Error('请在拾影侧栏允许访问这个站点');
+  if(tabId===undefined||!httpUrl(sender.url)||typeof command.playerId!=='string'||command.playerId.length>100)throw new Error(t("invalid_video_request"));
+  if(!await chrome.permissions.contains({origins:[originPattern(sender.url!)]}))throw new Error(t("allow_this_site_in_the_streamlens_sidebar"));
   await pageQueue;
   const tab=await chrome.tabs.get(tabId);
   const page=await getPage(tabId);
   const binding=playerKey(sender.documentId,sender.frameId,command.playerId);
-  if(!page||page.pageUrl!==tab.url||page.selection?.playerId!==binding)throw new Error('选择已变化，请重新点击要下载的视频');
+  if(!page||page.pageUrl!==tab.url||page.selection?.playerId!==binding)throw new Error(t("selection_changed_click_the_video_you_want_to"));
   const candidates=selectedAssets(page.assets,page.selection);
-  if(candidates.length===0)throw new Error('还没有关联到这个视频的地址。请继续播放几秒；首次授权后可刷新网页再试。');
+  if(candidates.length===0)throw new Error(t("no_url_is_linked_to_this_video_yet"));
   const endpoint=biliEndpoint(page.pageUrl);
   const asset=candidates.find(a=>a.url===endpoint)||candidates.find(a=>a.protocol==='HLS'||a.protocol==='DASH')||candidates[0];
-  if(asset.protocol!=='DASH'&&candidates.length>1)throw new Error('这个播放器关联了多个资源，请在侧栏确认要下载的资源');
+  if(asset.protocol!=='DASH'&&candidates.length>1)throw new Error(t("this_player_has_multiple_resources_choose_one_in"));
   if(command.type==='PLAYER_RESOLVE')return {asset:await resolveAsset(tabId,asset.id),preferences:await getPreferences()} satisfies PlayerResolveResult;
   if(command.type==='PLAYER_START') {
-    if(command.assetId!==asset.id)throw new Error('视频地址已变化，请重新解析');
+    if(command.assetId!==asset.id)throw new Error(t("video_url_changed_detect_it_again"));
     const currentSource=page.selection.sourceKey;
     const operation=startQueue.then(async()=>{
       await pageQueue;
       const current=await getPage(tabId);
-      if(current?.selection?.playerId!==binding||current.selection.sourceKey!==currentSource||!selectedAssets(current.assets,current.selection).some(a=>a.id===asset.id))throw new Error('视频已切换，请重新选择');
+      if(current?.selection?.playerId!==binding||current.selection.sourceKey!==currentSource||!selectedAssets(current.assets,current.selection).some(a=>a.id===asset.id))throw new Error(t("the_video_changed_select_it_again_105"));
       return startTask(tabId,asset.id,command.variantId,command.filename,{id:binding,source:currentSource});
     });
     startQueue=operation.then(()=>{},()=>{});return operation;
@@ -457,10 +462,10 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.url===offscreenUrl&&message.type==='REFRESH_HLS'){
     void (async()=>{
       const task=(await getTasks()).find(t=>t.id===message.id);
-      if(!task||task.protocol!=='HLS'||!activeStates.includes(task.state)||task.url!==message.url)throw new Error('视频任务已变化，无法更新地址');
+      if(!task||task.protocol!=='HLS'||!activeStates.includes(task.state)||task.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
       const url=await refreshHls(task);
       const current=(await getTasks()).find(t=>t.id===task.id);
-      if(!current||!activeStates.includes(current.state)||current.url!==message.url)throw new Error('视频任务已变化，无法更新地址');
+      if(!current||!activeStates.includes(current.state)||current.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
       await patchTask(task.id,{url});return {url};
     })().then(value=>respond({ok:true,value})).catch(error=>respond({ok:false,error:errorText(error),origins:error instanceof PermissionError?error.origins:undefined}));return true;
   }

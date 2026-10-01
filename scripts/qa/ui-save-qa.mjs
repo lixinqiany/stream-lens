@@ -30,7 +30,7 @@ button('返回').click();await settle();assert(w.document.querySelector('.sl-tas
 button('失败').click();await settle();holdTask=true;button('重试').click();button('重试').click();await settle();assert.equal(calls.filter(m=>m.type==='TASK').length,1);assert(button('重试').disabled);assert(w.document.querySelector('[aria-busy="true"]'));heldAction();holdTask=false;await settle();
 pendingSaves=[{id:'save-one',filename:'pending.mp4',pageUrl:'https://page.example/'}];await new Promise(r=>setTimeout(r,2050));button('进行中').click();await settle();assert(w.document.body.textContent.includes('等待选择保存位置'));const card=w.document.querySelector('.sl-pending-card');card.querySelector('.sl-secondary').click();await settle();assert(calls.some(m=>m.type==='SAVE_FOCUS'));card.querySelector('.sl-text-button').click();await settle();assert(!w.document.querySelector('.sl-pending-card'));
 button('已结束').click();await settle();assert(w.document.body.textContent.includes('暂无已结束记录'));button('查看全部任务').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,2);
-assert.equal(w.document.body.textContent.match(/v0\.2\.9/g).length,1);dom.window.close();
+assert.equal(w.document.body.textContent.match(/v0\.3\.0/g).length,1);dom.window.close();
 const pickerBundle=await build({entryPoints:['src/extension/save/index.ts'],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'}});
 for(const cancelled of [true,false]){
  const d=new JSDOM('<p id="filename"></p><p id="status"></p><button id="cancel">取消</button><button id="choose" disabled>选择位置并下载</button>',{url:'chrome-extension://test/save.html?request=abc',runScripts:'outside-only'});

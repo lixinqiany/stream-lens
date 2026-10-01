@@ -1,10 +1,11 @@
+import {t} from '../../i18n';
 import { originPattern } from '../model';
 import type { Range } from './parser';
 export class PermissionError extends Error {
-  constructor(public origins:string[]) {super('需要允许访问视频所在的资源站点');this.name='PermissionError';}
+  constructor(public origins:string[]) {super(t("allow_access_to_the_video_resource_site"));this.name='PermissionError';}
 }
 export class ResourceAccessError extends Error {
-  constructor(public status:number,public resourceUrl:string){super(status===410?`视频地址已过期（HTTP 410 · ${new URL(resourceUrl).hostname}），请重试。`:`服务器拒绝访问（HTTP ${status} · ${new URL(resourceUrl).hostname}），请在网页确认可播放后重试。`);this.name='ResourceAccessError';}
+  constructor(public status:number,public resourceUrl:string){super(status===410?t("video_url_expired_http_410_please_retry",[new URL(resourceUrl).hostname]):t("access_denied_http_check_that_the_video_plays",[status,new URL(resourceUrl).hostname]));this.name='ResourceAccessError';}
 }
 async function hasPermission(pattern:string) {
   // Offscreen documents expose runtime only. Permission checks belong to the service worker.
@@ -16,17 +17,17 @@ export async function allowedFetch(url:string,options:{signal?:AbortSignal;range
   const response=await allowedResponse(url,options);
   const limit=options.limit||64*1024*1024;
   const declared=Number(response.headers.get('content-length'));
-  if(declared>limit) {await response.body?.cancel();throw new Error('单个视频分片过大，暂不支持');}
-  if(options.range&&response.status!==206) {await response.body?.cancel();throw new Error('资源服务器不支持此视频所需的分段读取');}
+  if(declared>limit) {await response.body?.cancel();throw new Error(t("this_video_segment_exceeds_the_size_limit"));}
+  if(options.range&&response.status!==206) {await response.body?.cancel();throw new Error(t("the_server_does_not_support_the_required_range"));}
   if(options.range) {
     const match=/^bytes (\d+)-(\d+)\/(?:\d+|\*)$/.exec(response.headers.get('content-range')||'');
-    if(!match||Number(match[1])!==options.range.offset||Number(match[2])!==options.range.offset+options.range.length-1){await response.body?.cancel();throw new Error('视频服务器返回了错误的分片范围');}
+    if(!match||Number(match[1])!==options.range.offset||Number(match[2])!==options.range.offset+options.range.length-1){await response.body?.cancel();throw new Error(t("the_server_returned_an_incorrect_segment_range"));}
   }
-  const reader=response.body?.getReader();if(!reader) throw new Error('服务器没有返回视频内容');
+  const reader=response.body?.getReader();if(!reader) throw new Error(t("the_server_returned_no_video_data"));
   const chunks:Uint8Array[]=[];let size=0;
-  try {while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw new Error('视频资源超出单次处理限制');}chunks.push(value);}}finally{reader.releaseLock();}
+  try {while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw new Error(t("video_resource_exceeds_the_perrequest_limit"));}chunks.push(value);}}finally{reader.releaseLock();}
   const data=new Uint8Array(size);let offset=0;for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.byteLength;}
-  if(options.range&&size!==options.range.length) throw new Error('视频分片长度不完整');
+  if(options.range&&size!==options.range.length) throw new Error(t("video_segment_is_incomplete"));
   return {data,url:response.url||url};
 }
 export async function allowedResponse(url:string,options:{signal?:AbortSignal;range?:Range;cache?:RequestCache;stream?:boolean}={}) {
@@ -38,6 +39,6 @@ export async function allowedResponse(url:string,options:{signal?:AbortSignal;ra
   // Redirect targets also require explicit permission before their contents are consumed.
   const finalPattern=originPattern(response.url||url);
   if(finalPattern!==pattern&&!await hasPermission(finalPattern)) {await response.body?.cancel();throw new PermissionError([finalPattern]);}
-  if(!response.ok) {await response.body?.cancel();if([401,403,410].includes(response.status))throw new ResourceAccessError(response.status,response.url||url);throw new Error(response.status===404?'视频资源已失效，请重新检测':`资源请求失败（${response.status}）`);}
+  if(!response.ok) {await response.body?.cancel();if([401,403,410].includes(response.status))throw new ResourceAccessError(response.status,response.url||url);throw new Error(response.status===404?t("video_resource_is_no_longer_available_detect_it"):t("resource_request_failed",[response.status]));}
   return response;
 }

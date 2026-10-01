@@ -57,3 +57,11 @@ HLS/parser、媒体模型与目录归并可以独立测试。Chrome 请求和存
 响应体消费前核对重定向 CDN 的权限；范围请求核对状态、Content-Range 与长度。后台验证扩展 UI、内容脚本和 offscreen 的消息来源。页面标题文本渲染，脚本只读字面 URL、不执行。资源链接保留签名查询参数，不删 query 去重，也不在诊断中导出。
 
 数据模型/清单解析可用纯测试验证；Chrome 的原生权限、offscreen 生命周期与 downloads 最终落盘必须在实际扩展环境验证。具体已验证范围见 validation.md。
+
+## 国际化
+
+`src/i18n/messages.ts` 是中英文文本的唯一来源，类型化键由 `src/i18n/index.ts` 读取。默认使用 `chrome.i18n.getUILanguage()`，中文 locale 映射简体中文，其余映射英文；本地偏好可覆盖为 `auto / zh_CN / en`。侧栏通过快照切换，内容脚本与保存页监听偏好变更。offscreen 只提供 runtime API，后台在 RUN / LANGUAGE 消息中传入已解析的语言，不依赖 offscreen 的 storage 或 i18n API。
+
+用户可见错误和状态在产生时按当前语言输出，旧任务错误通过已知模板匹配在显示时转换。匹配只应用于扩展错误和画质字段，不翻译网页标题、URL 或文件名。Chrome 原生文件窗口使用系统语言；扩展只能本地化窗口外的页面与文件类型说明。
+
+构建从同一文本源生成 `_locales/en/messages.json` 和 `_locales/zh_CN/messages.json`，用于 manifest 的名称、简介与工具栏标题，`default_locale` 为 `en`。这些 Chrome 元数据跟随浏览器语言；扩展内手动选择不会修改 Chrome 的语言或商店目录语言。

@@ -30,13 +30,13 @@
 | Selection & detection | Downloading & management |
 | --- | --- |
 | **Select a player** — Click the video or its controls to choose your target. Autoplay elsewhere does not change it. | **In-player access** — Confirm downloads from the video overlay or persistent sidebar. |
-| **Automatic quality detection** — Discover available resolutions, apply your preference, or select another quality. | **Choose a location first** — Pick the filename and destination before downloading; save automatically on completion. |
+| **Automatic quality detection** — Discover available resolutions, apply your preference, or select another quality. | **Choose a location first** — Pick the filename and destination before downloading; stream the download to disk. |
 | **Light & dark themes** — Compact cards keep the title, duration, quality and primary action in view. | **Local task queue** — Pause, resume, cancel, retry and filter tasks. Downloads continue after closing the sidebar. |
 
 <p align="center">
   <img src="docs/images/workspace-en.png" width="1200" alt="Light video card, dark download queue and save preferences in StreamLens">
   <br>
-  <sub>UI illustrations based on v0.2.8 with sample data, not browser screenshots. The extension interface is currently in Chinese.</sub>
+  <sub>UI illustrations based on v0.2.8 with sample data, not browser screenshots. These images show the Chinese interface; v0.3.0 also supports English.</sub>
 </p>
 
 ## Installation
@@ -45,11 +45,13 @@
 
 1. Download the ZIP from [Releases](https://github.com/lixinqiany/stream-lens/releases/latest) and extract it to a permanent folder.
 2. Open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the folder containing `manifest.json`.
-3. Pin StreamLens to the toolbar. Open a video page and click its player. Once detection finishes, confirm the quality and select **选择位置并下载** (Choose location and download).
+3. Pin StreamLens to the toolbar. Open a video page and click its player. Once detection finishes, confirm the quality and select **Choose location & download**.
 
 **Updating:** Replace the contents of the original extension folder, reload the extension, then refresh video pages.
 
-**Save location:** Choose the filename and location first, then stream the download to disk. The complete file is committed when finished, without a second full-file copy. Updating to v0.2.9 enables this mode. Turn off **下载前选择保存位置** (Choose a save location before downloading) to use Chrome’s download folder; HLS / DASH still use a local temporary file in that mode.
+**Language:** Follows Chrome’s interface language by default: Simplified Chinese for Chinese locales, English for other languages. Select **Settings → Language** to choose **Browser default / 简体中文 / English**. Switching languages does not interrupt downloads.
+
+**Save location:** Choose the filename and location first, then stream the download to disk. The complete file is committed when finished, without a second full-file copy. Updating to v0.2.9 enables this mode. Turn off **Choose location before download** to use Chrome’s download folder; HLS / DASH still use a local temporary file in that mode.
 
 ## Supported media
 

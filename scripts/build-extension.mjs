@@ -11,6 +11,14 @@ await build({entryPoints:{background:'src/extension/background/index.ts',content
 const built=await build({entryPoints:['src/extension/manifest.ts'],bundle:true,write:false,format:'esm'});
 const {manifest}=await import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].text).toString('base64'));
 await writeFile(resolve(output,'manifest.json'),JSON.stringify(manifest,null,2));
+const stringsBuild=await build({entryPoints:['src/i18n/messages.ts'],bundle:true,write:false,format:'esm'});
+const {messages:strings}=await import('data:text/javascript;base64,'+Buffer.from(stringsBuild.outputFiles[0].text).toString('base64'));
+for(const [locale,language] of [['en','en'],['zh_CN','zh']]){
+  await mkdir(resolve(output,'_locales',locale),{recursive:true});
+  const catalog=Object.fromEntries(['app_title','app_desc','action_title'].map(key=>[key,{message:strings[key][language]}]));
+  await writeFile(resolve(output,'_locales',locale,'messages.json'),JSON.stringify(catalog,null,2));
+}
+
 await mkdir(resolve(output,'icons'),{recursive:true});
 for(const size of [16,32,48,128])await copyFile(resolve('public/icons',size+'.png'),resolve(output,'icons',size+'.png'));
 await copyFile(resolve('LICENSE'),resolve(output,'LICENSE'));
