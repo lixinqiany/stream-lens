@@ -1,0 +1,45 @@
+{
+  "name": "stream-lens",
+  "version": "0.2.8",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5178 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5178 --strictPort",
+    "test": "node scripts/test.mjs",
+    "build:extension": "tsc --noEmit && node scripts/build-extension.mjs",
+    "test:ui": "node scripts/test-ui.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "mux.js": "^7.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.302",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "esbuild": "^0.25.12",
+    "jsdom": "30.1.1",
+    "postcss": "^8.5.28",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  },
+  "description": "A local-first Chrome video downloader with selected-player detection, HLS and Bilibili DASH support.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lixinqiany/stream-lens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lixinqiany/stream-lens/issues"
+  },
+  "homepage": "https://github.com/lixinqiany/stream-lens#readme"
+}

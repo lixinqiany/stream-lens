@@ -1,0 +1,26 @@
+name: 问题反馈
+description: 下载、播放器识别或界面出现异常
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: 请移除 Cookie、令牌、媒体链接签名和个人信息。优先使用可公开访问的网页地址。
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: 扩展版本、Chrome 版本和操作系统
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 如何触发问题，期望结果与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 错误与补充信息
+      description: 网页地址、已去除个人信息的截图或错误文本

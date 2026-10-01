@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+const bundle=await build({entryPoints:['src/extension/content/index.ts'],bundle:true,write:false,format:'iife',platform:'browser'});
+const dom=new JSDOM('<div id="bilibili-player"><div class="bpx-player-container"><div class="bpx-player-video-area"><div class="bpx-player-video-wrap"><bwp-video id="main"></bwp-video><video id="ad" hidden></video></div><div class="bpx-player-render-dm-wrap" id="surface"></div></div><div class="bpx-player-control-wrap"><button id="play">Play</button></div></div></div>',{url:'https://www.bilibili.com/bangumi/play/ss45662?spm_id_from=x',runScripts:'outside-only'});
+const w=dom.window,calls=[],handlers=[],timers=[],queries=[];let shadow;
+const attach=w.Element.prototype.attachShadow;w.Element.prototype.attachShadow=function(o){shadow=attach.call(this,o);return shadow};
+const add=w.document.addEventListener.bind(w.document);w.document.addEventListener=(type,fn,opts)=>{handlers.push({type,fn});return add(type,fn,opts)};
+let onMessage;w.addEventListener=(type,fn)=>{if(type==='message')onMessage=fn};w.postMessage=m=>queries.push(m);
+w.setTimeout=fn=>{timers.push(fn);return timers.length};w.setInterval=()=>0;w.performance.getEntriesByType=()=>[];
+w.chrome={runtime:{onMessage:{addListener(){}},sendMessage:async m=>{calls.push(m);return {ok:true}}}};
+const main=w.document.querySelector('#main');let current='blob:https://www.bilibili.com/main';
+Object.defineProperties(main,{src:{get:()=>current},currentSrc:{get:()=>current},paused:{value:false},ended:{value:false},duration:{value:3000},videoWidth:{value:852},videoHeight:{value:480}});
+main.getBoundingClientRect=()=>({left:100,top:40,right:952,bottom:520,width:852,height:480});w.document.querySelector('#ad').getBoundingClientRect=()=>({width:0,height:0});
+// A large Bilibili root with a dormant ad used to fail the generic size check.
+w.document.querySelector('.bpx-player-container').getBoundingClientRect=()=>({width:1800,height:950});
+w.eval(bundle.outputFiles[0].text);const flush=()=>{while(timers.length)timers.shift()()};flush();
+const host=w.document.querySelector('[data-stream-lens-overlay]');assert.equal(host.style.display,'none');
+const surface=w.document.querySelector('#surface');handlers.find(h=>h.type==='click').fn({isTrusted:true,composedPath:()=>[surface,surface.parentElement,surface.closest('.bpx-player-container'),w.document.body]});
+assert.equal(host.style.display,'block');assert.equal(host.style.left,'826px');assert.equal(host.style.top,'52px');
+assert(!shadow.querySelector('style').textContent.includes('all:initial!important'),'shadow reset must allow host inline positioning and visibility');
+const query=queries.findLast(q=>q.type==='bili-player-query');assert(query);
+onMessage({source:w,data:{...query,type:'bili-player-context',episodeId:768339,seasonId:45662}});flush();
+let latest=calls.findLast(m=>m.type==='EVIDENCE');assert(latest.player.sourceKey.endsWith('|bili-ep:768339'));assert(latest.evidence.some(e=>e.url.includes('ep_id=768339')&&e.playerId===latest.player.playerId));
+// Source changes invalidate old context; an old reply cannot select another episode.
+current='blob:https://www.bilibili.com/next';main.dispatchEvent(new w.Event('emptied',{bubbles:true}));flush();
+latest=calls.findLast(m=>m.type==='EVIDENCE');assert(!latest.player.sourceKey.includes('bili-ep'));assert(latest.evidence.some(e=>e.url.includes('season_id=45662')));
+onMessage({source:w,data:{...query,type:'bili-player-context',episodeId:768338,seasonId:45662}});flush();assert(!calls.findLast(m=>m.type==='EVIDENCE').player.sourceKey.includes('bili-ep'));
+const next=queries.findLast(q=>q.type==='bili-player-query');onMessage({source:w,data:{...next,type:'bili-player-context',episodeId:768340,seasonId:45662}});flush();assert(calls.findLast(m=>m.type==='EVIDENCE').player.sourceKey.endsWith('|bili-ep:768340'));
+console.log('Bilibili content QA passed: click through control layers, custom media and dormant ad, inline overlay coordinates, selected season episode and stale-source rejection.');dom.window.close();

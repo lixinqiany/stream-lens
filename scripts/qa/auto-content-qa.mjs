@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+const bundle=await build({entryPoints:['src/extension/content/index.ts'],bundle:true,write:false,format:'iife',platform:'browser'});
+function fixture(){
+ const dom=new JSDOM('<h1>Fixture</h1><video id="main" src="https://cdn.example/main.m3u8"></video><video id="second" src="https://cdn.example/second.m3u8"></video><video id="ad" src="https://ads.example/ad.m3u8"></video>',{url:'https://page.example/',runScripts:'outside-only'});
+ const w=dom.window,timers=[],calls=[],handlers=[],pending=[];let shadow;const attach=w.Element.prototype.attachShadow;w.Element.prototype.attachShadow=function(o){return shadow=attach.call(this,o);};
+ const add=w.document.addEventListener.bind(w.document);w.document.addEventListener=(type,fn,opts)=>{handlers.push({type,fn});add(type,fn,opts);};
+ w.setTimeout=fn=>{timers.push(fn);return timers.length;};w.setInterval=()=>0;w.performance.getEntriesByType=()=>[];
+ w.chrome={runtime:{onMessage:{addListener(){}},sendMessage:async m=>{calls.push(m);if(m.type==='PLAYER_RESOLVE')return new Promise(r=>pending.push(r));return {ok:true,value:{id:'task'}};}}};
+ for(const v of w.document.querySelectorAll('video')){Object.defineProperties(v,{currentSrc:{get(){return this.src;}},paused:{value:false},ended:{value:false},videoWidth:{value:1280},videoHeight:{value:720},duration:{value:100}});v.getBoundingClientRect=()=>({left:100,top:40,right:900,bottom:490,width:800,height:450});}
+ w.eval(bundle.outputFiles[0].text);
+ const flush=()=>{while(timers.length)timers.shift()();};flush();
+ return {dom,w,calls,pending,shadow,flush,choose:id=>handlers.find(h=>h.type==='click').fn({isTrusted:true,composedPath:()=>[w.document.querySelector('#'+id),w.document.body]}),result:title=>({ok:true,value:{asset:{id:title,title,variants:[{id:title,label:'720p',url:'https://cdn.example/'+title+'.m3u8'}]},preferences:{quality:'best',saveAs:false,editFilename:false}}})};
+}
+const settle=()=>new Promise(r=>setImmediate(r));
+const f=fixture();assert.equal(f.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,0,'autoplay never triggers resolution');f.choose('main');assert.equal(f.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,1,'selection resolves before shortcut click');assert.equal(f.calls.filter(m=>m.type==='PLAYER_START').length,0);
+f.shadow.querySelector('.shortcut').click();await settle();assert(!f.shadow.querySelector('.shortcut').disabled);assert.equal(f.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,1,'shortcut shares in-flight resolution');assert(f.shadow.querySelector('.start').hidden);
+f.choose('second');assert.equal(f.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,2);f.shadow.querySelector('.shortcut').click();await settle();f.pending[1](f.result('second'));await settle();f.pending[0](f.result('main'));await settle();assert.equal(f.shadow.querySelector('select').value,'second','old player result is ignored');assert.equal(f.shadow.querySelector('.status').textContent,'second');
+for(let i=0;i<4;i++){f.w.document.querySelector('#ad').dispatchEvent(new f.w.Event('play',{bubbles:true}));f.flush();}assert.equal(f.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,2,'ad playback and scans do not resolve again');f.dom.window.close();
+const fail=fixture();fail.choose('main');fail.pending[0]({ok:false,error:'无法识别视频，请重试'});await settle();for(let i=0;i<4;i++){fail.w.document.querySelector('#main').dispatchEvent(new fail.w.Event('pause',{bubbles:true}));fail.flush();}assert.equal(fail.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,1,'failure never polls');fail.shadow.querySelector('.shortcut').click();await settle();assert.equal(fail.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,2,'opening shortcut retries failed resolution');fail.pending[1](fail.result('main'));await settle();assert.equal(fail.shadow.querySelector('select').value,'main');assert.equal(fail.calls.filter(m=>m.type==='PLAYER_START').length,0);fail.dom.window.close();
+const inline=fixture();inline.choose('main');inline.shadow.querySelector('.shortcut').click();await settle();inline.pending[0]({ok:false,error:'暂时不可用'});await settle();assert(!inline.shadow.querySelector('.retry').hidden);inline.shadow.querySelector('.retry').click();await settle();assert.equal(inline.calls.filter(m=>m.type==='PLAYER_RESOLVE').length,2);inline.pending[1](inline.result('main'));await settle();assert(inline.shadow.querySelector('.retry').hidden);inline.dom.window.close();
+console.log('Automatic overlay QA passed: selected-only auto resolution, in-flight sharing, shortcut accessible while loading, old player response ignored, no automatic download or failure polling, explicit retry.');

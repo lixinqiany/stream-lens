@@ -1,0 +1,15 @@
+name: 功能建议
+description: 提出新的功能或交互改进
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景
+      description: 目前遇到的困难与希望实现的效果
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 改进建议

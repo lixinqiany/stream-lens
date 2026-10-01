@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+const bundle=await build({entryPoints:['src/extension/content/index.ts'],bundle:true,write:false,format:'iife',platform:'browser'});
+const dom=new JSDOM('<h1>Fixture</h1><div class="plyr"><video id="player" src="blob:https://page.example/main"></video><button id="play">Play</button></div><video id="ad" src="blob:https://page.example/ad"></video><script>var hlsUrl="https://cdn.example/main.m3u8";player.loadSource(hlsUrl)</script>',{url:'https://page.example/',runScripts:'outside-only'});
+const w=dom.window,calls=[],listeners=[],timers=[];let root,receive,denyStart=true;
+const attach=w.Element.prototype.attachShadow;
+w.Element.prototype.attachShadow=function(o){const r=attach.call(this,o);root=r;return r;};
+const nativeAdd=w.document.addEventListener.bind(w.document);
+w.document.addEventListener=(type,fn,opts)=>{listeners.push({type,fn});return nativeAdd(type,fn,opts);};
+w.performance.getEntriesByType=()=>[];
+w.setTimeout=fn=>{timers.push(fn);return timers.length};w.setInterval=()=>0;
+w.chrome={runtime:{onMessage:{addListener:fn=>{receive=fn}},sendMessage:async m=>{calls.push(m);if(m.type==='PLAYER_RESOLVE')return {ok:true,value:{asset:{id:'main',title:'Fixture',variants:[{id:'v',label:'720p',url:'https://cdn.example/main.m3u8'}]},preferences:{editFilename:false,quality:'best'}}};if(m.type==='PLAYER_START'){if(denyStart)return {ok:false,error:'需要允许访问视频所在的资源站点',origins:['https://amuse-lefty.mushroomtrack.com/*']};return {ok:true,value:{id:'task',duplicate:false}};}return {ok:true};}}};
+const main=w.document.querySelector('#player'),ad=w.document.querySelector('#ad');
+for(const v of [main,ad]){Object.defineProperties(v,{currentSrc:{get(){return this.src}},paused:{value:false,configurable:true},ended:{value:false},duration:{value:100,configurable:true},videoWidth:{value:1280},videoHeight:{value:720}});v.getBoundingClientRect=()=>({left:100,top:40,right:900,bottom:490,width:800,height:450});}
+w.eval(bundle.outputFiles[0].text);while(timers.length)timers.shift()();
+assert(!calls.find(m=>m.type==='EVIDENCE')?.player,'autoplay cannot select a player');
+const button=w.document.querySelector('#play');button.parentElement.getBoundingClientRect=main.getBoundingClientRect;
+const handler=listeners.find(l=>l.type==='pointerdown').fn;
+handler({isTrusted:true,composedPath:()=>[button,button.parentElement,w.document.body,w.document.documentElement]});
+let evidence=calls.filter(m=>m.type==='EVIDENCE').at(-1);
+assert(evidence.select&&evidence.player.sourceKey==='blob:https://page.example/main');
+assert.equal(evidence.evidence.filter(e=>e.playerId===evidence.player.playerId).length,1);
+assert.equal(evidence.evidence.find(e=>e.url.endsWith('main.m3u8')).playing,true);
+assert.equal(w.document.querySelector('[data-stream-lens-overlay]').style.display,'block');
+Object.defineProperty(main,'paused',{value:true,configurable:true});main.dispatchEvent(new w.Event('pause',{bubbles:true}));while(timers.length)timers.shift()();
+assert.equal(calls.filter(m=>m.type==='EVIDENCE').at(-1).player.playing,false);
+ad.dispatchEvent(new w.Event('play',{bubbles:true}));while(timers.length)timers.shift()();
+assert.equal(calls.filter(m=>m.type==='EVIDENCE').at(-1).player.playerId,evidence.player.playerId);
+const shortcut=root.querySelector('.shortcut');shortcut.click();await new Promise(r=>setImmediate(r));
+assert.equal(root.querySelector('.panel').hidden,false);assert.equal(root.querySelector('.start').hidden,false);
+root.querySelector('.start').click();await new Promise(r=>setImmediate(r));assert(calls.some(m=>m.type==='PLAYER_START'&&m.assetId==='main'));
+assert(root.querySelector('.secondary:not(.retry)').textContent.includes('打开侧栏授权'));const count=calls.filter(m=>m.type==='PLAYER_START').length;
+denyStart=false;receive({type:'CONTENT_SCAN',retryPermissions:true});await new Promise(r=>setImmediate(r));assert.equal(calls.filter(m=>m.type==='PLAYER_START').length,count+1);assert(root.querySelector('.status').textContent.includes('已开始下载'));
+// Permission retries must not follow a later player selection.
+root.querySelector('.close').click();root.querySelector('.shortcut').click();await new Promise(r=>setImmediate(r));denyStart=true;root.querySelector('.start').click();await new Promise(r=>setImmediate(r));
+const beforeStale=calls.filter(m=>m.type==='PLAYER_START').length;main.src='blob:https://page.example/changed';receive({type:'CONTENT_SCAN',retryPermissions:true});await new Promise(r=>setImmediate(r));assert.equal(calls.filter(m=>m.type==='PLAYER_START').length,beforeStale);
+
+main.src='blob:https://page.example/next';main.dispatchEvent(new w.Event('emptied',{bubbles:true}));while(timers.length)timers.shift()();
+evidence=calls.filter(m=>m.type==='EVIDENCE').at(-1);assert.equal(evidence.player.sourceKey,'blob:https://page.example/next');assert.equal(evidence.evidence.find(e=>e.url.endsWith('main.m3u8')).playerId,undefined,'stale script cannot bind old movie to a new source');
+console.log('Permission retry content QA passed: autoplay exclusion, control click selection, pause retention, overlay resolution/start, stale blob/script protection.');
+dom.window.close();
