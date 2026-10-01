@@ -29,7 +29,7 @@
 
 | Selection & detection | Downloading & management |
 | --- | --- |
-| **Select a player** — Click the video or its controls to choose your target. Autoplay elsewhere does not change it. | **In-player access** — Confirm downloads from the video overlay or persistent sidebar. |
+| **Select a player** — The main player is detected automatically. Switch using the video, its controls or the sidebar; manual selection takes priority. | **In-player access** — Confirm downloads from the video overlay or persistent sidebar. |
 | **Automatic quality detection** — Discover available resolutions, apply your preference, or select another quality. | **Choose a location first** — Pick the filename and destination before downloading; stream the download to disk. |
 | **Light & dark themes** — Compact cards keep the title, duration, quality and primary action in view. | **Local task queue** — Pause, resume, cancel, retry and filter tasks. Downloads continue after closing the sidebar. |
 
@@ -45,7 +45,7 @@
 
 1. Download the ZIP from [Releases](https://github.com/lixinqiany/stream-lens/releases/latest) and extract it to a permanent folder.
 2. Open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the folder containing `manifest.json`.
-3. Pin StreamLens to the toolbar. Open a video page and click its player. Once detection finishes, confirm the quality and select **Choose location & download**.
+3. Pin StreamLens to the toolbar. Open a video page. The main player is detected automatically. Once detection finishes, confirm the quality and select **Choose location & download**.
 
 **Updating:** Replace the contents of the original extension folder, reload the extension, then refresh video pages.
 

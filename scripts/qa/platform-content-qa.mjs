@@ -13,7 +13,7 @@ for(const site of ['youtube','douyin']){
  Object.defineProperties(video,{src:{get:()=>source},currentSrc:{get:()=>source},paused:{value:false},ended:{value:false},duration:{value:300},videoWidth:{value:1280},videoHeight:{value:720}});
  video.getBoundingClientRect=player.getBoundingClientRect=()=>({left:10,top:10,right:810,bottom:460,width:800,height:450});
  w.eval(bundle.outputFiles[0].text);const flush=()=>{while(timers.length)timers.shift()()};flush();
- const host=w.document.querySelector('[data-stream-lens-overlay]');assert.equal(host.style.display,'none');assert.equal(calls.filter(m=>m.type==='PLAYER_RESOLVE').length,0);
+ const host=w.document.querySelector('[data-stream-lens-overlay]');assert.equal(host.style.display,'block');assert.equal(calls.findLast(m=>m.type==='EVIDENCE').player.mode,'auto');assert.equal(calls.filter(m=>m.type==='PLAYER_RESOLVE').length,1);assert.equal(calls.filter(m=>m.type==='PLAYER_START').length,0);
  handlers.find(h=>h.type==='click').fn({isTrusted:true,composedPath:()=>[video,player,w.document.body]});
  let latest=calls.findLast(m=>m.type==='EVIDENCE');assert(latest.player.sourceKey.includes(site==='youtube'?'|yt:jNQXAC9IVRw':'|dy:7677919026948967689'));assert(latest.evidence.some(e=>e.url.includes(site==='youtube'?'watch?v=jNQXAC9IVRw':'share/video/7677919026948967689')&&e.playerId===latest.player.playerId));assert.equal(host.style.display,'block');
  if(site==='douyin'){

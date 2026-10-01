@@ -3,6 +3,7 @@ import type { DownloadRecord, MediaAsset, PlayerSelection, Preferences, Snapshot
 export type UiCommand =
   | { type: 'SNAPSHOT'; tabId: number }
   | { type: 'SCAN'; tabId: number; retryPermissions?:boolean }
+  | { type:'SELECT_PLAYER';tabId:number;assetId:string;playerId:string;sourceKey:string }
   | { type: 'RESOLVE'; tabId: number; assetId: string }
   | { type: 'START'; tabId: number; assetId: string; variantId?: string; filename?: string }
   | { type: 'TASK'; id: string; action: 'pause'|'resume'|'cancel'|'retry'|'show'|'source' }

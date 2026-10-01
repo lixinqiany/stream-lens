@@ -2,13 +2,13 @@ export type Protocol = 'HLS' | 'MP4' | 'WEBM' | 'DASH';
 import type {DashSource} from './dash/mp4';
 export type Variant = { id: string; url: string; label: string; height?: number; bandwidth?: number; codecs?: string; audioGroup?: string; dash?:DashSource };
 export type VideoEvidence = { url?: string; playerId?: string; sourceKey?: string; format?: 'DASH'; title: string; pageUrl: string; poster?: string; width: number; height: number; duration?: number; playing: boolean; primary: boolean; protected: boolean; source: 'player' | 'network' | 'script'; contentType?: string; size?: number };
-export type PlayerSelection = { playerId: string; sourceKey: string; title: string; playing: boolean; selectedAt: number };
+export type PlayerSelection = { playerId: string; sourceKey: string; title: string; playing: boolean; selectedAt: number; mode?:'auto'|'manual' };
 export type MediaAsset = {
   id: string; url: string; title: string; pageUrl: string; protocol: Protocol;
   duration?: number; width?: number; height?: number; playing: boolean; primary: boolean;
   suspectedAd: boolean; protected: boolean; poster?: string; size?: number;
   variants?: Variant[]; resolutionError?: string; resolutionState?:'loading'|'ready'|'failed'; resolutionOrigins?:string[]; resolvedAt?:number; evidence: VideoEvidence['source'][];
-  playerBindings?: {playerId: string; sourceKey: string}[];
+  playerBindings?: {playerId: string; sourceKey: string; seenAt?:number; frameId?:number; documentId?:string}[];
 };
 export type DownloadState = 'resolving' | 'downloading' | 'paused' | 'merging' | 'saving' | 'completed' | 'failed' | 'cancelled';
 export type DownloadRecord = {

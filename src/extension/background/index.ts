@@ -128,17 +128,20 @@ async function acceptEvidence(message:ContentMessage,sender:chrome.runtime.Messa
       contentType:raw.format==='DASH'||isDouyinEndpoint(tab.url!,url)?'video/mp4':undefined,
       playing:raw.playing===true,primary:sender.frameId===0&&raw.primary===true,protected:raw.protected===true,source:['player','network','script'].includes(raw.source)?raw.source:'player'};
     page.assets=mergeEvidence(page.assets,evidence);
+    if(evidence.playerId)page.assets=page.assets.map(a=>a.url===url?{...a,playerBindings:a.playerBindings?.map(b=>b.playerId===evidence.playerId?{...b,frameId:sender.frameId??0,documentId:sender.documentId}:b)}:a);
   }
   const player=message.player;
   if(player&&typeof player.playerId==='string'&&player.playerId.length<=100&&typeof player.sourceKey==='string'&&player.sourceKey.length<=16000&&typeof player.title==='string'&&Number.isFinite(player.selectedAt)) {
     const playerId=playerKey(sender.documentId,sender.frameId,player.playerId);
-    if((message.select===true&&player.selectedAt>=(page.selection?.selectedAt||0))||page.selection?.playerId===playerId) {
+    const auto=player.mode==='auto';
+    const maySelect=message.select===true&&player.selectedAt>=(page.selection?.selectedAt||0)&&(!auto||(sender.frameId===0&&(!page.selection||page.selection.mode==='auto')));
+    if(maySelect||page.selection?.playerId===playerId) {
       if(page.selection?.playerId!==playerId||page.selection?.sourceKey!==player.sourceKey){page.shortcutError=undefined;page.assets=page.assets.map(a=>a.playerBindings?.some(b=>b.playerId===playerId&&b.sourceKey===player.sourceKey)?{...a,variants:undefined,resolutionState:undefined,resolutionError:undefined,resolutionOrigins:undefined}:a);}
-      page.selection={playerId,sourceKey:player.sourceKey,title:player.title.slice(0,300),playing:player.playing===true,selectedAt:player.selectedAt};
+      page.selection={playerId,sourceKey:player.sourceKey,title:player.title.slice(0,300),playing:player.playing===true,selectedAt:player.selectedAt,mode:auto&&page.selection?.mode!=='manual'?'auto':'manual'};
     }
   }
   page.pageUrl=tab.url!;page.updatedAt=Date.now();await setPage(tabId,page);
-  const count=page.selection?selectedAssets(page.assets,page.selection).length:page.assets.filter(a=>!a.suspectedAd).length;
+  const count=page.selection?selectedAssets(page.assets,page.selection).length:0;
   await chrome.action.setBadgeText({tabId,text:count?String(count):''});
   await chrome.action.setBadgeBackgroundColor({color:'#527ae5'});
   if(page.selection){const selection=page.selection;for(const asset of selectedAssets(page.assets,selection).slice(0,3))if(!asset.protected&&(!asset.resolutionState||(asset.resolutionState==='loading'&&!resolutionCache.hasPending(resolutionKey(tabId,page,asset.id)))))void resolveAsset(tabId,asset.id).catch(()=>{});}
@@ -399,6 +402,16 @@ async function handleUi(command:UiCommand):Promise<unknown> {
     case 'SNAPSHOT':{const saves=await pendingSaves();await pageQueue;const tasks=await getTasks();await Promise.all(tasks.filter(t=>t.downloadId&&activeStates.includes(t.state)).map(t=>updateDownload(t.downloadId!)));return {page:await getPage(command.tabId),tasks:await getTasks(),preferences:await getPreferences(),pendingSaves:saves} satisfies Snapshot;}
     case 'SCAN':await scan(command.tabId,command.retryPermissions);return;
     case 'SYNC_HOSTS':await syncHosts();return;
+    case 'SELECT_PLAYER':{
+      await pageQueue;const tab=await chrome.tabs.get(command.tabId),page=await getPage(command.tabId);
+      const asset=page?.assets.find(a=>a.id===command.assetId),binding=asset?.playerBindings?.find(b=>b.playerId===command.playerId&&b.sourceKey===command.sourceKey);
+      if(!page||page.pageUrl!==tab.url||!binding)throw new Error(t('the_video_changed_select_it_again_105'));
+      const playerId=binding.playerId.slice(binding.playerId.lastIndexOf(':')+1);
+      const options=binding.documentId?{documentId:binding.documentId}:{frameId:binding.frameId??0};
+      const response=await chrome.tabs.sendMessage(command.tabId,{type:'CONTENT_SELECT',playerId,sourceKey:binding.sourceKey},options);
+      if(response?.ok!==true)throw new Error(t('the_video_changed_select_it_again_105'));
+      await pageQueue;return;
+    }
     case 'RESOLVE':return resolveAsset(command.tabId,command.assetId,true);
     case 'START':{
       const operation=startQueue.then(()=>startTask(command.tabId,command.assetId,command.variantId,command.filename));startQueue=operation.then(()=>{},()=>{});return operation;
@@ -505,6 +518,6 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.url===offscreenUrl&&['PROGRESS','OUTPUT','SAVED'].includes(message.type)){void handleWorker(message).then(()=>respond({ok:true})).catch(error=>respond({ok:false,error:errorText(error)}));return true;}
   if(sender.id!==chrome.runtime.id||!sender.url?.startsWith(ownOrigin)||sender.url===offscreenUrl)return;
   if(sender.url?.startsWith(chrome.runtime.getURL('save.html')+'?')&&['SAVE_INFO','SAVE_COMMIT','SAVE_CANCEL'].includes(message.type)){void handleSave(message).then(value=>respond({ok:true,value})).catch(error=>respond({ok:false,error:errorText(error)}));return true;}
-  if(!['SNAPSHOT','SCAN','RESOLVE','START','TASK','CLEAR','PREFERENCES','SYNC_HOSTS','SAVE_FOCUS','SAVE_CANCEL'].includes(message.type))return;
+  if(!['SNAPSHOT','SCAN','SELECT_PLAYER','RESOLVE','START','TASK','CLEAR','PREFERENCES','SYNC_HOSTS','SAVE_FOCUS','SAVE_CANCEL'].includes(message.type))return;
   void handleUi(message).then(value=>respond({ok:true,value} satisfies Response<unknown>)).catch(error=>respond({ok:false,error:errorText(error),origins:error instanceof PermissionError?error.origins:undefined}));return true;
 });

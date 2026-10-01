@@ -30,7 +30,7 @@ export function mergeEvidence(assets: MediaAsset[], evidence: VideoEvidence): Me
     poster: httpUrl(evidence.poster) || existing?.poster, size: evidence.size || existing?.size,
     suspectedAd: !evidence.primary && !existing?.primary && (((meaningfulDuration ?? existing?.duration) !== undefined && (meaningfulDuration ?? existing?.duration)! <= 30) || ((evidence.width || existing?.width || 0) > 0 && (evidence.width || existing?.width || 0) < 480)),
     evidence: [...new Set([...(existing?.evidence || []), evidence.source])],
-    playerBindings: evidence.playerId && evidence.sourceKey ? [...(existing?.playerBindings || []).filter(b=>b.playerId!==evidence.playerId), {playerId:evidence.playerId,sourceKey:evidence.sourceKey}] : existing?.playerBindings,
+    playerBindings: evidence.playerId && evidence.sourceKey ? [...(existing?.playerBindings || []).filter(b=>b.playerId!==evidence.playerId), {playerId:evidence.playerId,sourceKey:evidence.sourceKey,seenAt:Math.max(Date.now(),...(assets.flatMap(a=>a.playerBindings||[]).filter(b=>b.playerId===evidence.playerId).map(b=>(b.seenAt||0)+1)))}] : existing?.playerBindings,
   };
   return [...assets.filter(a => a.url !== url), asset].sort((a,b) => score(b) - score(a)).slice(0, 100);
 }

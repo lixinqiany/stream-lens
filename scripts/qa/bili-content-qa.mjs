@@ -15,7 +15,7 @@ main.getBoundingClientRect=()=>({left:100,top:40,right:952,bottom:520,width:852,
 // A large Bilibili root with a dormant ad used to fail the generic size check.
 w.document.querySelector('.bpx-player-container').getBoundingClientRect=()=>({width:1800,height:950});
 w.eval(bundle.outputFiles[0].text);const flush=()=>{while(timers.length)timers.shift()()};flush();
-const host=w.document.querySelector('[data-stream-lens-overlay]');assert.equal(host.style.display,'none');
+const host=w.document.querySelector('[data-stream-lens-overlay]');assert.equal(host.style.display,'block');assert.equal(calls.findLast(m=>m.type==='EVIDENCE').player.mode,'auto');assert(calls.findLast(m=>m.type==='EVIDENCE').evidence.some(e=>e.url.includes('season_id=45662')));assert(!calls.some(m=>m.type==='PLAYER_START'));
 const surface=w.document.querySelector('#surface');handlers.find(h=>h.type==='click').fn({isTrusted:true,composedPath:()=>[surface,surface.parentElement,surface.closest('.bpx-player-container'),w.document.body]});
 assert.equal(host.style.display,'block');assert.equal(host.style.left,'826px');assert.equal(host.style.top,'52px');
 assert(!shadow.querySelector('style').textContent.includes('all:initial!important'),'shadow reset must allow host inline positioning and visibility');

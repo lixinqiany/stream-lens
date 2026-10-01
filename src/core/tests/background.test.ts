@@ -173,7 +173,7 @@ test('service-worker interruption before saving commit result recovers task with
 });
 
 async function until(check:()=>boolean){for(let i=0;i<100;i++){if(check())return;await new Promise(r=>setTimeout(r,2));}assert.fail('automatic metadata did not settle');}
-function selectedEvidence(sourceKey:string,url:string,selectedAt=1000){return {type:'EVIDENCE',pageUrl:'https://page.example/',select:true,player:{playerId:'automatic',sourceKey,title:'Automatic',playing:true,selectedAt},evidence:[{url,playerId:'automatic',sourceKey,title:'Automatic',pageUrl:'https://page.example/',width:1280,height:720,playing:true,primary:true,protected:false,source:'player'},{url:'https://ads.example/promo.m3u8',title:'Ad',pageUrl:'https://page.example/',width:320,height:180,playing:true,primary:false,protected:false,source:'network'}]};}
+function selectedEvidence(sourceKey:string,url:string,selectedAt=1000):any{return {type:'EVIDENCE',pageUrl:'https://page.example/',select:true,player:{playerId:'automatic',sourceKey,title:'Automatic',playing:true,selectedAt},evidence:[{url,playerId:'automatic',sourceKey,title:'Automatic',pageUrl:'https://page.example/',width:1280,height:720,playing:true,primary:true,protected:false,source:'player'},{url:'https://ads.example/promo.m3u8',title:'Ad',pageUrl:'https://page.example/',width:320,height:180,playing:true,primary:false,protected:false,source:'network'}]};}
 test('selecting player automatically resolves quality once without downloads or ad requests',async()=>{
  reset();const original=globalThis.fetch,calls:string[]=[];
  globalThis.fetch=async url=>{calls.push(String(url));return new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\n720.m3u8');};
@@ -254,4 +254,29 @@ test('ordinary Bilibili retry renews exactly the requested multipart page',async
   local.tasks=[{id:'bv-retry',assetId:'bv',title:'BV',filename:'bv.mp4',pageUrl,url:'https://cdn.example/expired.m4s',protocol:'DASH',resolutionUrl:endpoint,quality:'480p',state:'failed',bytes:0,segments:0,speed:0,createdAt:0,updatedAt:0}];
   const response=await ui({type:'TASK',id:'bv-retry',action:'retry'});assert(response.ok,response.error);assert.match(requested[1],/cid=2&/);assert.equal(local.tasks[0].resolutionUrl,endpoint);assert.match(local.tasks[0].url,/fresh/);
  }finally{globalThis.fetch=previous;}
+});
+
+test('automatic main-player evidence resolves without downloading; manual selection cannot be stolen',async()=>{
+ reset();const original=globalThis.fetch;globalThis.fetch=async()=>new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXT-X-ENDLIST');
+ try{
+  const auto=selectedEvidence('blob:primary','https://cdn.example/primary.m3u8');auto.player.mode='auto';content(auto);
+  await until(()=>session['page:1'].assets.some((a:any)=>a.url.includes('primary')&&a.resolutionState==='ready'));
+  assert.equal(session['page:1'].selection.mode,'auto');assert.equal(local.tasks.length,0);assert.equal(downloads.size,0);
+  const manual=selectedEvidence('blob:chosen','https://cdn.example/chosen.m3u8',2000);manual.player.playerId='chosen';manual.evidence[0].playerId='chosen';manual.player.mode='manual';content(manual);await ui({type:'SNAPSHOT',tabId:1});
+  const next=selectedEvidence('blob:other-auto','https://cdn.example/other-auto.m3u8',3000);next.player.mode='auto';content(next);await ui({type:'SNAPSHOT',tabId:1});
+  assert.equal(session['page:1'].selection.playerId,'doc:chosen');assert.equal(session['page:1'].selection.mode,'manual');assert.equal(local.tasks.length,0);
+  const frame=selectedEvidence('blob:iframe','https://cdn.example/iframe.m3u8',4000);frame.player.mode='auto';receive(frame,{id:'test',url:'https://frame.example/',documentId:'frame-doc',frameId:1,tab:{id:1}},()=>{});await ui({type:'SNAPSHOT',tabId:1});assert.equal(session['page:1'].selection.playerId,'doc:chosen');
+ }finally{globalThis.fetch=original;}
+});
+
+test('sidebar player selection targets the original frame and refuses a stale source',async()=>{
+ reset();const tabs=chrome.tabs as any,original=tabs.sendMessage;const originalFetch=globalThis.fetch;const sent:any[]=[];
+ globalThis.fetch=async()=>new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXT-X-ENDLIST');
+ try{
+  const message=selectedEvidence('blob:sidebar','https://cdn.example/sidebar.m3u8',5000);message.select=false;message.player=undefined;
+  content(message);await ui({type:'SNAPSHOT',tabId:1});const asset=session['page:1'].assets.find((a:any)=>a.url.includes('/sidebar.'));
+  tabs.sendMessage=async(tabId:number,request:any,options:any)=>{sent.push({tabId,request,options});content({...message,select:true,player:{playerId:request.playerId,sourceKey:request.sourceKey,title:'Sidebar',playing:true,selectedAt:6000,mode:'manual'}});return {ok:true};};
+  const result=await ui({type:'SELECT_PLAYER',tabId:1,assetId:asset.id,playerId:'doc:automatic',sourceKey:'blob:sidebar'});assert(result.ok,result.error);assert.equal(sent[0].request.playerId,'automatic');assert.deepEqual(sent[0].options,{documentId:'doc'});assert.equal(session['page:1'].selection.mode,'manual');assert.equal(local.tasks.length,0);
+  tabs.sendMessage=async()=>({ok:false});const stale=await ui({type:'SELECT_PLAYER',tabId:1,assetId:asset.id,playerId:'doc:automatic',sourceKey:'blob:sidebar'});assert.equal(stale.ok,false);assert.equal(local.tasks.length,0);
+ }finally{tabs.sendMessage=original;globalThis.fetch=originalFetch;}
 });

@@ -31,3 +31,5 @@
 
 /* Longer translations remain readable in narrow sidebars. */
 .sl-section-heading{gap:10px;flex-wrap:wrap}.sl-task-filters{flex-wrap:wrap}.sl-task-filters>button{flex:1 1 auto;justify-content:center}.sl-setting-row>div{min-width:0}.sl-setting-row strong,.sl-primary span{overflow-wrap:break-word}.sl-sheet-actions{flex-wrap:wrap}.sl-download-button{min-height:42px;height:auto;white-space:normal}.sl-player-status{white-space:nowrap}
+
+button.sl-other-resource{width:100%;background:transparent;text-align:left;cursor:pointer}button.sl-other-resource:hover{color:var(--sl-accent);background:var(--sl-soft)}button.sl-other-resource>span{flex:1}button.sl-other-resource:disabled{opacity:.6;cursor:wait}

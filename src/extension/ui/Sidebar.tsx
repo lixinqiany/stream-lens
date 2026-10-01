@@ -4,11 +4,11 @@ import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLin
 import { activeStates, clearableStates, defaults, httpUrl, originPattern, taskProgress, type DownloadRecord, type MediaAsset, type Preferences, type Variant } from '../../core/model';
 import type { StartResult } from '../../platform/messages';
 import { useExtension } from './use-extension';
-import {selectedAssets} from '../../core/discovery/selection';
+import {selectedAssets,otherPlayerAssets} from '../../core/discovery/selection';
 import {PermissionError} from '../../core/hls/fetch';
 import {statusLabel,formatProgress,formatSize as size,formatDuration as duration,matchesFilter,type TaskFilter} from './presentation';
 type View='page'|'tasks'|'settings';
-const version=chrome.runtime.getManifest?.().version||'0.3.1';
+const version=chrome.runtime.getManifest?.().version||'0.3.2';
 function Icon({label,onClick,children,disabled}:{label:string;onClick:()=>void;children:ReactNode;disabled?:boolean}){return <button type="button" className="sl-icon-button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>{children}</button>;}
 export function Sidebar() {
   const api=useExtension();
@@ -30,7 +30,7 @@ export function Sidebar() {
   useEffect(()=>{applyDocumentLanguage();document.title=t("app_title");},[prefs.language]);
   const assets=snapshot.page&&snapshot.page.pageUrl===tab?.url?snapshot.page.assets:[];
   const selection=snapshot.page?.pageUrl===tab?.url?snapshot.page?.selection:undefined;
-  const main=selection?selectedAssets(assets,selection):[],others=assets.filter(a=>!main.some(m=>m.id===a.id));
+  const main=selection?selectedAssets(assets,selection):[],others=otherPlayerAssets(assets,selection).filter(a=>!main.some(m=>m.id===a.id));
   const shortcutError=snapshot.page?.pageUrl===tab?.url?snapshot.page?.shortcutError:undefined;
   const active=snapshot.tasks.filter(t=>activeStates.includes(t.state));
   const pendingSaves=snapshot.pendingSaves||[];
@@ -43,6 +43,10 @@ export function Sidebar() {
     document.addEventListener('keydown',onKey);return()=>{document.removeEventListener('keydown',onKey);siblings.forEach(node=>node.inert=false);previous?.focus();};
   },[sheet,cancelId]);
   async function perform(action:()=>Promise<unknown>,message?:string) {api.setError('');api.setPendingOrigins([]);try{await action();if(message)setToast(message);}catch(e){api.setPendingOrigins((e as {origins?:string[]})?.origins||[]);api.setError(e instanceof Error?e.message:t("operation_failed"));}}
+  async function selectOther(asset:MediaAsset){
+    const binding=asset.playerBindings?.find(b=>b.playerId!==selection?.playerId);if(!binding||tab?.id===undefined||busy)return;
+    setBusy(true);await perform(()=>api.send({type:'SELECT_PLAYER',tabId:tab.id!,assetId:asset.id,playerId:binding.playerId,sourceKey:binding.sourceKey}));setBusy(false);
+  }
   async function scan(){if(tab?.id===undefined)return;setBusy(true);await perform(()=>api.send({type:'SCAN',tabId:tab.id!}),t("refreshed"));setBusy(false);}
   async function withAccess<T>(run:()=>Promise<T>):Promise<T>{const previous=pendingAction.current,identity=livePage.current;try{const result=await run();if(pendingAction.current===previous)pendingAction.current=undefined;return result;}catch(e){if(identity===livePage.current&&(e as {origins?:string[]})?.origins?.length&&tab?.id!==undefined)pendingAction.current={tabId:tab.id,pageUrl:tab.url||'',playerId:selection?.playerId,sourceKey:selection?.sourceKey,run};throw e;}}
   async function grantAccess(all=false){await api.grant(all?['http://*/*','https://*/*']:api.pendingOrigins);const pending=pendingAction.current;pendingAction.current=undefined;if(pending){const current=await chrome.tabs.get(pending.tabId);if(pending.tabId===tab?.id&&pending.pageUrl===current.url){const latest=await api.send<import('../../core/model').Snapshot>({type:'SNAPSHOT',tabId:pending.tabId});if(!pending.playerId||(latest.page?.selection?.playerId===pending.playerId&&latest.page.selection.sourceKey===pending.sourceKey))await pending.run();}}}
@@ -82,7 +86,7 @@ export function Sidebar() {
         {!selection?<Empty icon={<Play size={28}/>} title={t("select_a_video_to_download")} description={t("click_a_player_to_detect_its_video_and")}/>:!main.length?<Empty icon={<ScanLine size={28}/>} title={t("detecting_video")} description={t("play_for_a_few_seconds_to_detect_the")} action={busy?t("detecting"):t("detect_again")} onAction={()=>void scan()}/>:null}
 
         {main.map(asset=><Resource key={pageIdentity+':'+asset.id} asset={asset} prefs={prefs} resolve={resolve} onStart={requestStart} onAccess={origins=>void perform(()=>api.grant(origins))} busy={busy}/>)}
-        {others.length>0&&<><button className="sl-ads-toggle" aria-expanded={adOpen} onClick={()=>setAdOpen(!adOpen)}><FileVideo size={14}/><span>{t("other_videos",[others.length])}</span><ChevronDown size={14} className={adOpen?'rotate':''}/></button>{adOpen&&<div className="sl-other-list">{others.map(a=><div key={a.id} className="sl-other-resource"><FileVideo size={16}/><span title={a.title}>{a.title}</span></div>)}<p>{t("click_the_corresponding_player_on_the_page_to")}</p></div>}</>}
+        {others.length>0&&<><button className="sl-ads-toggle" aria-expanded={adOpen} onClick={()=>setAdOpen(!adOpen)}><FileVideo size={14}/><span>{t("other_videos",[others.length])}</span><ChevronDown size={14} className={adOpen?'rotate':''}/></button>{adOpen&&<div className="sl-other-list">{others.map(a=><button key={a.id} className="sl-other-resource" disabled={busy} onClick={()=>void selectOther(a)}><FileVideo size={16}/><span title={a.title}>{a.title}</span><ArrowRight size={14}/></button>)}</div>}</>}
 
       </>}
     </div>}

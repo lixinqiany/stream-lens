@@ -870,8 +870,8 @@ export const messages = {
     "en": "Select a video to download"
   },
   "click_a_player_to_detect_its_video_and": {
-    "zh": "点击网页播放器，自动识别视频和清晰度。",
-    "en": "Click a player to detect its video and available quality."
+    "zh": "主视频会自动识别；多个播放器时，点击选择。",
+    "en": "The main video is detected automatically. Click a player when there are multiple choices."
   },
   "detecting_video": {
     "zh": "正在识别视频",
