@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {JSDOM} from 'jsdom';
+import {readFile} from 'node:fs/promises';
+const version=JSON.parse(await readFile('package.json','utf8')).version;
 const source="import {createRoot} from 'react-dom/client';import {Sidebar} from './src/extension/ui/Sidebar';createRoot(document.getElementById('root')).render(<Sidebar/>);";
 const bundle=await build({stdin:{contents:source,loader:'tsx',resolveDir:process.cwd()},jsx:'automatic',bundle:true,write:false,format:'iife',platform:'browser'});
 const dom=new JSDOM('<div id="root"></div>',{url:'chrome-extension://test/sidepanel.html',runScripts:'outside-only'});const w=dom.window,calls=[];Object.defineProperty(w.document,'visibilityState',{value:'visible'});
@@ -9,7 +11,7 @@ let tasks=['failed','completed','cancelled','downloading'].map(state=>({...base,
 let pendingSaves=[];let heldAction;let holdTask=false;
 let prefs={quality:'best',editFilename:true,hideAds:true,saveAs:true,theme:'dark'};
 const event={addListener(){},removeListener(){}};
-w.chrome={tabs:{query:async()=>[{id:1,url:'https://page.example/'}],onActivated:event,onUpdated:event},permissions:{contains:async()=>true,onAdded:event,onRemoved:event},storage:{onChanged:event},runtime:{sendMessage:async m=>{
+w.chrome={tabs:{query:async()=>[{id:1,url:'https://page.example/'}],onActivated:event,onUpdated:event},permissions:{contains:async()=>true,onAdded:event,onRemoved:event},storage:{onChanged:event},runtime:{getManifest:()=>({version}),sendMessage:async m=>{
  calls.push(m);if(m.type==='SNAPSHOT')return {ok:true,value:{page:null,tasks,preferences:prefs,pendingSaves}};
  if(m.type==='TASK'&&holdTask)return new Promise(resolve=>{heldAction=()=>resolve({ok:true});});
  if(m.type==='SAVE_CANCEL')pendingSaves=[];
@@ -30,7 +32,7 @@ button('返回').click();await settle();assert(w.document.querySelector('.sl-tas
 button('失败').click();await settle();holdTask=true;button('重试').click();button('重试').click();await settle();assert.equal(calls.filter(m=>m.type==='TASK').length,1);assert(button('重试').disabled);assert(w.document.querySelector('[aria-busy="true"]'));heldAction();holdTask=false;await settle();
 pendingSaves=[{id:'save-one',filename:'pending.mp4',pageUrl:'https://page.example/'}];await new Promise(r=>setTimeout(r,2050));button('进行中').click();await settle();assert(w.document.body.textContent.includes('等待选择保存位置'));const card=w.document.querySelector('.sl-pending-card');card.querySelector('.sl-secondary').click();await settle();assert(calls.some(m=>m.type==='SAVE_FOCUS'));card.querySelector('.sl-text-button').click();await settle();assert(!w.document.querySelector('.sl-pending-card'));
 button('已结束').click();await settle();assert(w.document.body.textContent.includes('暂无已结束记录'));button('查看全部任务').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,2);
-assert.equal(w.document.body.textContent.match(/v0\.3\.0/g).length,1);dom.window.close();
+assert.equal(w.document.body.textContent.split('v'+version).length-1,1);dom.window.close();
 const pickerBundle=await build({entryPoints:['src/extension/save/index.ts'],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'}});
 for(const cancelled of [true,false]){
  const d=new JSDOM('<p id="filename"></p><p id="status"></p><button id="cancel">取消</button><button id="choose" disabled>选择位置并下载</button>',{url:'chrome-extension://test/save.html?request=abc',runScripts:'outside-only'});
