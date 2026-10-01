@@ -3,10 +3,10 @@ import {rememberDestination} from '../../platform/destination';
 destinationDatabase();
 import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import type {DownloadRecord} from '../model';
 const ts=new Uint8Array(await readFile('src/core/tests/fixtures/hls-segment.bin'));
-const nativeFetch=globalThis.fetch;const messages:any[]=[];const files=new Map<string,Uint8Array>();let listener:any;let block=false;let denied=false;let encrypted=false;let calls=0;let currentId='';let rejectSave=false;let storageReads=0;let streaming:undefined|(()=>Response);let expired=false,mismatch=false,refreshCount=0;const urls:string[]=[];
+const nativeFetch=globalThis.fetch;const messages:any[]=[];const files=new Map<string,Uint8Array>();let listener:any;let block=false;let denied=false;let encrypted=false;let calls=0;let currentId='';let rejectSave=false;let storageReads=0;let removeFailure=false;let streaming:undefined|(()=>Response);let expired=false,mismatch=false,refreshCount=0;const urls:string[]=[];
 const rawKey=new Uint8Array(16).fill(7);const cryptoKey=await crypto.subtle.importKey('raw',rawKey,'AES-CBC',false,['encrypt']);const cipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-CBC',iv:new Uint8Array(16)},cryptoKey,ts));
 Object.assign(globalThis,{chrome:{runtime:{id:'test',getURL:(path:string)=>'chrome-extension://test/'+path,onMessage:{addListener:(fn:any)=>{listener=fn;}},sendMessage:async(message:any)=>{messages.push(structuredClone(message));if(message.type==='CHECK_ORIGIN')return {ok:true,allowed:!denied};if(message.type==='REFRESH_HLS'){refreshCount++;return {ok:true,value:{url:'https://cdn.example/fresh/v.m3u8'}};}return message.type==='PREPARE_SAVE'?{ok:true,accepted:!rejectSave}:{ok:true};}}}});
-const directory={removeEntry:async(name:string)=>{files.delete(name);},getFileHandle:async(name:string)=>({createWritable:async()=>{const chunks:Uint8Array[]=[];return {write:async(data:Uint8Array)=>{chunks.push(data.slice());},close:async()=>{files.set(name,new Uint8Array(Buffer.concat(chunks)));},abort:async()=>{files.delete(name);}};},getFile:async()=>new Blob([files.get(name)! as Uint8Array<ArrayBuffer>])})};
+const directory={removeEntry:async(name:string)=>{if(removeFailure)throw new Error('disk busy');files.delete(name);},getFileHandle:async(name:string)=>({createWritable:async()=>{const chunks:Uint8Array[]=[];return {write:async(data:Uint8Array)=>{chunks.push(data.slice());},close:async()=>{files.set(name,new Uint8Array(Buffer.concat(chunks)));},abort:async()=>{files.delete(name);}};},getFile:async()=>new Blob([files.get(name)! as Uint8Array<ArrayBuffer>])})};
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>{storageReads++;return {getDirectoryHandle:async()=>directory};}}}});
 globalThis.fetch=async(input:any,options:any)=>{
  const url=String(input);urls.push(url);if(streaming)return streaming();if(expired){if(url.endsWith('.m3u8'))return new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXTINF:'+((mismatch&&url.includes('/fresh/'))?11:10)+',\nb.ts\n#EXT-X-ENDLIST');if(url==='https://cdn.example/b.ts')return new Response('gone',{status:410});}if(url.startsWith('blob:'))return nativeFetch(input,options);
@@ -30,6 +30,12 @@ test('pause aborts an in-flight segment; resume keeps same task and produces val
 });
 test('cancel waits for runner termination and removes partial files before acknowledgement',async()=>{
  block=true;const t=task();await command({type:'RUN',task:t});await until(()=>calls===1);assert.equal((await command({type:'CONTROL',id:t.id,action:'cancel'})).ok,true);assert.ok(state('cancelled'));assert.equal(messages.some(m=>m.type==='OUTPUT'),false);assert.equal(files.size,0);assert.deepEqual((await command({type:'PING'})).jobs,[]);block=false;
+});
+test('runner cancellation reports cleanup failure and allows cleanup retry without a new download',async()=>{
+ block=true;const t=task();await command({type:'RUN',task:t});await until(()=>calls===1);removeFailure=true;
+ const cancel=await command({type:'CONTROL',id:t.id,action:'cancel'});assert.equal(cancel.ok,false);assert.match(cancel.error,/disk busy/);
+ assert((await command({type:'PING'})).jobs.includes(t.id));assert.equal((await command({type:'RUN',task:t})).ok,false);
+ removeFailure=false;assert.equal((await command({type:'CONTROL',id:t.id,action:'cancel'})).ok,true);assert.deepEqual((await command({type:'PING'})).jobs,[]);assert.equal(files.size,0);block=false;
 });
 test('denied CDN produces actionable permission failure without fetching media',async()=>{
  denied=true;const t=task();await command({type:'RUN',task:t});await until(()=>state('failed'));assert.equal(calls,0);assert.deepEqual(messages.find(m=>m.task?.state==='failed').task.neededOrigins,['https://cdn.example/*']);denied=false;

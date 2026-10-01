@@ -9,9 +9,10 @@ import { validateMp4Init } from '../../core/hls/mp4';
 import {mergeDashInit,parseSidx,patchDashFragment,type DashTrack} from '../../core/dash/mp4';
 import type { RunnerMessage } from '../../platform/messages';
 
-type Job={task:DownloadRecord;controller:AbortController;paused:boolean;cancelled:boolean;wake?:()=>void;done?:Promise<void>};
+type Job={task:DownloadRecord;controller:AbortController;paused:boolean;cancelled:boolean;wake?:()=>void;done?:Promise<void>;cleanupError?:unknown};
 const jobs=new Map<string,Job>();
 const outputs=new Map<string,{url:string;directory:FileSystemDirectoryHandle}>();
+const failedCleanups=new Map<string,()=>Promise<void>>();
 const MAX_BYTES=8*1024*1024*1024;
 // A new document cannot resume an old writer. Remove leftovers from interrupted sessions.
 let cleanup:Promise<void>|undefined;
@@ -80,7 +81,7 @@ async function openOutput(job:Job):Promise<OutputWriter> {
         if(response?.ok===false)throw new Error(response.error||t("video_file_could_not_be_saved"));
       }
     },
-    async abort(){if(!closed)await writer.abort().catch(()=>{});if(directory)await directory.removeEntry(job.task.id+'.mp4').catch(()=>{});},
+    async abort(){if(!closed){await writer.abort();closed=true;}if(directory)await removeEntry(directory,job.task.id+'.mp4');},
   };
   return output;
 }
@@ -167,8 +168,7 @@ async function run(job:Job) {
     const state:DownloadState=job.cancelled?'cancelled':'failed';
     await progress(job,{state,speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("download_failed_please_retry"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
-    transmuxer?.dispose();if(!completed)await output?.abort();
-    if(job.cancelled)await release(job.task.id);
+    transmuxer?.dispose();if(!completed)await discardOutput(job,output);
     jobs.delete(job.task.id);
     void maybeClose();
   }
@@ -215,7 +215,7 @@ async function runDash(job:Job) {
     await release(job.task.id);completed=false;
     await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("video_or_audio_download_failed"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
-    if(!completed)await output?.abort();
+    if(!completed)await discardOutput(job,output);
     jobs.delete(job.task.id);void maybeClose();
   }
 }
@@ -249,7 +249,7 @@ async function runDirect(job:Job) {
         await waitActive(job);attemptSignal.throwIfAborted();
         break;
       }catch(error){
-        await output?.abort();output=undefined;
+        if(output)await output.abort();output=undefined;
         if(!job.cancelled&&(job.paused||attemptSignal.aborted))continue;throw error;
       }finally{await reader?.cancel().catch(()=>{});reader?.releaseLock();}
     }
@@ -258,33 +258,44 @@ async function runDirect(job:Job) {
   }catch(error){
     await progress(job,{state:job.cancelled?'cancelled':'failed',speed:0,error:job.cancelled?undefined:error instanceof Error?error.message:t("download_failed"),neededOrigins:error instanceof PermissionError?error.origins:undefined}).catch(()=>{});
   }finally{
-    if(!completed)await output?.abort();
+    if(!completed)await discardOutput(job,output);
     jobs.delete(job.task.id);void maybeClose();
   }
 }
 
+async function removeEntry(directory:FileSystemDirectoryHandle,name:string) {
+  try{await directory.removeEntry(name);}catch(error){if(!(error instanceof DOMException&&error.name==='NotFoundError'))throw error;}
+}
+async function discardOutput(job:Job,output?:OutputWriter) {
+  if(!output)return;
+  try{await output.abort();}catch(error){job.cleanupError=error;failedCleanups.set(job.task.id,()=>output.abort());}
+}
 async function release(id:string) {
-  const output=outputs.get(id);if(output){URL.revokeObjectURL(output.url);await output.directory.removeEntry(id+'.mp4').catch(()=>{});outputs.delete(id);}
+  const retry=failedCleanups.get(id);if(retry){await retry();failedCleanups.delete(id);}
+  const output=outputs.get(id);if(output){await removeEntry(output.directory,id+'.mp4');URL.revokeObjectURL(output.url);outputs.delete(id);}
   void maybeClose();
 }
-async function maybeClose(){if(!jobs.size&&!outputs.size)void chrome.runtime.sendMessage({type:'RUNNER_IDLE'}).catch(()=>{});}
+async function maybeClose(){if(!jobs.size&&!outputs.size&&!failedCleanups.size)void chrome.runtime.sendMessage({type:'RUNNER_IDLE'}).catch(()=>{});}
+function respondAfter(operation:Promise<void>,respond:(message:unknown)=>void){
+  void operation.then(()=>respond({ok:true})).catch(error=>respond({ok:false,error:error instanceof Error?error.message:t('operation_failed_please_retry')}));
+}
 chrome.runtime.onMessage.addListener((message:RunnerMessage,sender,respond)=>{
   if(message?.target!=='runner'||sender.id!==chrome.runtime.id||sender.tab||(sender.url&&!sender.url.startsWith(chrome.runtime.getURL(''))))return;
-  if(message.type==='PING'){respond({ok:true,jobs:[...jobs.keys()],outputs:outputs.size});return;}
+  if(message.type==='PING'){respond({ok:true,jobs:[...new Set([...jobs.keys(),...failedCleanups.keys()])],outputs:outputs.size});return;}
   if(message.type==='LANGUAGE'){setLanguage(message.language);respond({ok:true});return;}
   if(message.type==='RUN') {
     setLanguage(message.language);
-    if(jobs.has(message.task.id)){respond({ok:false,error:t("this_task_is_still_running_retry_later")});return;}
+    if(jobs.has(message.task.id)||failedCleanups.has(message.task.id)){respond({ok:false,error:t("this_task_is_still_running_retry_later")});return;}
     const job:Job={task:message.task,controller:new AbortController(),paused:false,cancelled:false};jobs.set(job.task.id,job);
-    job.done=release(job.task.id).then(()=>run(job));respond({ok:true});return;
+    job.done=release(job.task.id).then(()=>run(job)).catch(error=>{job.cleanupError=error;jobs.delete(job.task.id);});respond({ok:true});return;
   }
-  if(message.type==='RELEASE'){void release(message.id).then(()=>respond({ok:true}));return true;}
+  if(message.type==='RELEASE'){respondAfter(release(message.id),respond);return true;}
   if(message.type==='CONTROL') {
-    const job=jobs.get(message.id);if(!job){if(message.action==='cancel'){void release(message.id).then(()=>respond({ok:true}));return true;}respond({ok:false,error:t("the_download_runner_stopped_start_the_download_again")});return;}
+    const job=jobs.get(message.id);if(!job){if(message.action==='cancel'){respondAfter(release(message.id),respond);return true;}respond({ok:false,error:t("the_download_runner_stopped_start_the_download_again")});return;}
     if(message.action==='pause'&&!job.paused){if(['merging','saving'].includes(job.task.state)){respond({ok:false,error:t("finishing_the_file_please_wait")});return;}job.paused=true;job.controller.abort();void progress(job,{state:'paused',speed:0}).catch(()=>{});}
     if(message.action==='resume'&&job.paused){job.paused=false;job.controller=new AbortController();job.wake?.();void progress(job,{state:job.task.totalSegments?'downloading':'resolving'}).catch(()=>{});}
     if(message.action==='cancel'&&job.task.destinationId&&job.task.state==='saving'){respond({ok:false,error:t("saving_the_file_please_wait")});return;}
-    if(message.action==='cancel'){job.cancelled=true;job.controller.abort();job.wake?.();void job.done?.then(()=>respond({ok:true}));return true;}
+    if(message.action==='cancel'){job.cancelled=true;job.controller.abort();job.wake?.();respondAfter((async()=>{await job.done;if(job.cleanupError)throw job.cleanupError;await release(message.id);})(),respond);return true;}
     respond({ok:true});return;
   }
 });

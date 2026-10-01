@@ -2,28 +2,72 @@ import {destinationDatabase,destinationFile} from './support/destinations';
 import {rememberDestination} from '../../platform/destination';
 const destinationRecords=destinationDatabase();const chooserWindows:any[]=[];let removedWindow:(id:number)=>void=()=>{};let windowFocuses=0;let runnerReject=false;
 import {test} from 'node:test';import assert from 'node:assert/strict';import {mergeEvidence} from '../discovery/catalog';import type {DownloadRecord} from '../model';
-const event=()=>({addListener:(_fn:unknown)=>{}});const local:Record<string,any>={};const session:Record<string,any>={};let receive:any;let headerRules:any[]=[];let headerWrites=0;const runner:any[]=[];const downloads=new Map<number,any>();let nextId=1;let runnerAlive=false;let granted=true;let releaseDownload:(id:number)=>void;let delayDownload=false;
+const event=()=>({addListener:(_fn:unknown)=>{}});const local:Record<string,any>={};const session:Record<string,any>={};let receive:any;let headerRules:any[]=[];let headerWrites=0;const runner:any[]=[];const downloads=new Map<number,any>();let nextId=1;let runnerAlive=false;let granted=true;let releaseDownload:(id:number)=>void;let delayDownload=false;let cancelReply:undefined|(()=>Promise<any>);let runReply:undefined|(()=>Promise<any>);let temporaryFailure=false;const temporaryFiles=new Set<string>();
 const store=(data:Record<string,any>)=>({get:async(key:string|null)=>key===null?structuredClone(data):({[key]:structuredClone(data[key])}),set:async(patch:any)=>{Object.assign(data,structuredClone(patch));},remove:async(key:string)=>{delete data[key];}});
-Object.assign(globalThis,{chrome:{windows:{create:async(options:any)=>{chooserWindows.push(options);return {id:chooserWindows.length};},update:async()=>{windowFocuses++;},remove:async(id:number)=>{removedWindow(id);},onRemoved:{addListener:(fn:any)=>{removedWindow=fn;}}},declarativeNetRequest:{RuleActionType:{MODIFY_HEADERS:'modifyHeaders'},HeaderOperation:{SET:'set'},ResourceType:{XMLHTTPREQUEST:'xmlhttprequest'},getSessionRules:async()=>structuredClone(headerRules),updateSessionRules:async({removeRuleIds,addRules}:any)=>{headerWrites++;headerRules=[...headerRules.filter(r=>!removeRuleIds.includes(r.id)),...addRules]}},runtime:{id:'test',getURL:(p:string)=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:{addListener:(fn:any)=>{receive=fn;}},sendMessage:async(m:any)=>{runner.push(m);return runnerReject&&m.type==='RUN'?{ok:false,error:'runner unavailable'}:{ok:true};}},sidePanel:{setPanelBehavior:async()=>{}},storage:{local:store(local),session:store(session)},scripting:{getRegisteredContentScripts:async()=>[],registerContentScripts:async()=>{},unregisterContentScripts:async()=>{},executeScript:async()=>{}},permissions:{contains:async()=>granted,getAll:async()=>({origins:['https://cdn.example/*']}),onRemoved:event(),onAdded:event()},tabs:{onRemoved:event(),onUpdated:event(),get:async()=>({id:1,url:'https://page.example/',title:'Test'}),sendMessage:async()=>{},create:async()=>{}},webRequest:{onBeforeRequest:event(),onHeadersReceived:event()},action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},offscreen:{Reason:{BLOBS:'BLOBS'},hasDocument:async()=>runnerAlive,createDocument:async()=>{runnerAlive=true;}},alarms:{create:async()=>{},onAlarm:event()},downloads:{onChanged:event(),download:async(options:any)=>{const id=nextId++;downloads.set(id,{saveAs:options.saveAs,id,state:'in_progress',bytesReceived:10,totalBytes:100,url:options.url});if(delayDownload)return new Promise<number>(resolve=>{releaseDownload=()=>resolve(id);});return id;},search:async({id}:any)=>downloads.has(id)?[downloads.get(id)]:[],pause:async(id:number)=>{downloads.get(id).paused=true;},resume:async(id:number)=>{downloads.get(id).paused=false;},cancel:async(id:number)=>{Object.assign(downloads.get(id),{state:'interrupted',error:'USER_CANCELED'});},show:async()=>{}}}});
+Object.assign(globalThis,{chrome:{windows:{create:async(options:any)=>{chooserWindows.push(options);return {id:chooserWindows.length};},update:async()=>{windowFocuses++;},remove:async(id:number)=>{removedWindow(id);},onRemoved:{addListener:(fn:any)=>{removedWindow=fn;}}},declarativeNetRequest:{RuleActionType:{MODIFY_HEADERS:'modifyHeaders'},HeaderOperation:{SET:'set'},ResourceType:{XMLHTTPREQUEST:'xmlhttprequest'},getSessionRules:async()=>structuredClone(headerRules),updateSessionRules:async({removeRuleIds,addRules}:any)=>{headerWrites++;headerRules=[...headerRules.filter(r=>!removeRuleIds.includes(r.id)),...addRules]}},runtime:{id:'test',getURL:(p:string)=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:{addListener:(fn:any)=>{receive=fn;}},sendMessage:async(m:any)=>{runner.push(m);if(m.type==='RUN'&&runReply)return runReply();if(m.type==='CONTROL'&&m.action==='cancel'&&cancelReply)return cancelReply();return runnerReject&&m.type==='RUN'?{ok:false,error:'runner unavailable'}:{ok:true};}},sidePanel:{setPanelBehavior:async()=>{}},storage:{local:store(local),session:store(session)},scripting:{getRegisteredContentScripts:async()=>[],registerContentScripts:async()=>{},unregisterContentScripts:async()=>{},executeScript:async()=>{}},permissions:{contains:async()=>granted,getAll:async()=>({origins:['https://cdn.example/*']}),onRemoved:event(),onAdded:event()},tabs:{onRemoved:event(),onUpdated:event(),get:async()=>({id:1,url:'https://page.example/',title:'Test'}),sendMessage:async()=>{},create:async()=>{}},webRequest:{onBeforeRequest:event(),onHeadersReceived:event()},action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},offscreen:{Reason:{BLOBS:'BLOBS'},hasDocument:async()=>runnerAlive,createDocument:async()=>{runnerAlive=true;}},alarms:{create:async()=>{},onAlarm:event()},downloads:{onChanged:event(),download:async(options:any)=>{const id=nextId++;downloads.set(id,{saveAs:options.saveAs,id,state:'in_progress',bytesReceived:10,totalBytes:100,url:options.url});if(delayDownload)return new Promise<number>(resolve=>{releaseDownload=()=>resolve(id);});return id;},search:async({id}:any)=>downloads.has(id)?[downloads.get(id)]:[],pause:async(id:number)=>{downloads.get(id).paused=true;},resume:async(id:number)=>{downloads.get(id).paused=false;},cancel:async(id:number)=>{Object.assign(downloads.get(id),{state:'interrupted',error:'USER_CANCELED'});},show:async()=>{}}}});
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>({getDirectoryHandle:async()=>({removeEntry:async(name:string)=>{if(temporaryFailure)throw new Error('disk busy');temporaryFiles.delete(name);}})})}}});
 globalThis.fetch=async()=>new Response('#EXTM3U\n#EXTINF:10,\na.ts\n#EXT-X-ENDLIST');
 await import('../../extension/background/index');
 function ui(m:any){return new Promise<any>(resolve=>receive(m,{id:'test',url:'chrome-extension://test/sidepanel.html'},resolve));}
 function worker(m:any){return new Promise<any>(resolve=>receive(m,{id:'test',url:'chrome-extension://test/offscreen.html'},resolve));}
 function reset(protocol:'MP4'|'HLS'='HLS'){
- for(const key of Object.keys(session))delete session[key];runnerReject=false;windowFocuses=0;local.tasks=[];local.preferences={saveAs:false};chooserWindows.length=0;runner.length=0;downloads.clear();granted=true;delayDownload=false;
+ for(const key of Object.keys(session))delete session[key];runnerReject=false;windowFocuses=0;local.tasks=[];local.preferences={saveAs:false};chooserWindows.length=0;runner.length=0;downloads.clear();granted=true;delayDownload=false;cancelReply=undefined;runReply=undefined;temporaryFailure=false;temporaryFiles.clear();
  const assets=mergeEvidence([],{url:'https://cdn.example/video.'+(protocol==='HLS'?'m3u8':'mp4'),title:'Test',pageUrl:'https://page.example/',width:1280,height:720,duration:10,playing:true,primary:true,protected:false,source:'player'});session['page:1']={pageUrl:'https://page.example/',assets,documentKey:'test',updatedAt:Date.now()};return assets[0];
 }
 test('actual background routes HLS to independent runner and rejects duplicate active resource',async()=>{
  const asset=reset();const response=await ui({type:'START',tabId:1,assetId:asset.id});assert.equal(response.ok,true);assert.equal(local.tasks.length,1);assert.equal(runner.find(m=>m.type==='RUN').task.id,response.value.id);const duplicate=await ui({type:'START',tabId:1,assetId:asset.id});assert.equal(duplicate.value.duplicate,true);assert.equal(local.tasks.length,1);
 });
 test('direct Chrome downloads updates native pause and completion without repeated snapshot writes',async()=>{
- const asset=reset('MP4');const response=await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];assert.equal(task.state,'downloading');assert.equal(task.bytes,10);await ui({type:'TASK',id:response.value.id,action:'pause'});assert.equal(local.tasks[0].state,'paused');downloads.get(task.downloadId).state='complete';await ui({type:'SNAPSHOT',tabId:2});assert.equal(local.tasks[0].state,'completed');assert.equal((await ui({type:'SNAPSHOT',tabId:2})).value.tasks.length,1);
+ const asset=reset('MP4');const response=await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];assert.equal(task.state,'downloading');assert.equal(task.bytes,10);await ui({type:'TASK',id:response.value.id,action:'pause'});assert.equal(local.tasks[0].state,'paused');await ui({type:'TASK',id:response.value.id,action:'resume'});assert.equal(local.tasks[0].state,'downloading');assert.equal(downloads.get(task.downloadId).paused,false);downloads.get(task.downloadId).state='complete';await ui({type:'SNAPSHOT',tabId:2});assert.equal(local.tasks[0].state,'completed');assert.equal((await ui({type:'SNAPSHOT',tabId:2})).value.tasks.length,1);
 });
 test('cancelled HLS cannot be revived by late progress or output',async()=>{
- const asset=reset();const response=await ui({type:'START',tabId:1,assetId:asset.id});const id=response.value.id;await ui({type:'TASK',id,action:'cancel'});assert.equal(local.tasks[0].state,'cancelled');await worker({type:'PROGRESS',task:{id,state:'downloading',segments:9}});assert.equal(local.tasks[0].state,'cancelled');await worker({type:'OUTPUT',id,url:'blob:chrome-extension://test/valid'});assert.equal(downloads.size,0);assert.ok(runner.some(m=>m.type==='RELEASE'));
+ const asset=reset();const response=await ui({type:'START',tabId:1,assetId:asset.id});const id=response.value.id;await ui({type:'TASK',id,action:'cancel'});assert.equal(local.tasks.length,0);await worker({type:'PROGRESS',task:{id,state:'downloading',segments:9}});assert.equal(local.tasks.length,0);await worker({type:'OUTPUT',id,url:'blob:chrome-extension://test/valid'});assert.equal(downloads.size,0);assert.ok(runner.some(m=>m.type==='RELEASE'));
 });
 test('cancel racing with Chrome save keeps terminal cancellation and releases output',async()=>{
- const asset=reset();const response=await ui({type:'START',tabId:1,assetId:asset.id});const id=response.value.id;delayDownload=true;const saving=worker({type:'OUTPUT',id,url:'blob:chrome-extension://test/valid'});while(!downloads.size)await new Promise(r=>setTimeout(r,1));await ui({type:'TASK',id,action:'cancel'});releaseDownload!(0);await saving;assert.equal(local.tasks[0].state,'cancelled');assert.equal(downloads.values().next().value.state,'interrupted');assert.ok(runner.some(m=>m.type==='RELEASE'));
+ const asset=reset();const response=await ui({type:'START',tabId:1,assetId:asset.id});const id=response.value.id;delayDownload=true;const saving=worker({type:'OUTPUT',id,url:'blob:chrome-extension://test/valid'});while(!downloads.size)await new Promise(r=>setTimeout(r,1));const cancelling=ui({type:'TASK',id,action:'cancel'});while(local.tasks[0].state!=='cancelling')await new Promise(r=>setTimeout(r,1));assert.equal(local.tasks.length,1);releaseDownload!(0);await saving;assert((await cancelling).ok);assert.equal(local.tasks.length,0);assert.equal(downloads.values().next().value.state,'interrupted');assert.ok(runner.some(m=>m.type==='CONTROL'&&m.action==='cancel'));
+});
+test('cancellation waits for cleanup acknowledgement, keeps retryable failures, then removes handles and save requests',async()=>{
+ const asset=reset();await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];
+ const destination=await rememberDestination(destinationFile().handle);task.destinationId=destination;
+ session['save:chosen']={result:{id:task.id},windowId:5,createdAt:Date.now()};
+ let finish: (response:any)=>void=()=>{};cancelReply=()=>new Promise(resolve=>{finish=resolve;});
+ const cancelling=ui({type:'TASK',id:task.id,action:'cancel'});
+ while(!runner.some(m=>m.type==='CONTROL'))await new Promise(r=>setTimeout(r,1));
+ assert.equal(local.tasks[0].state,'cancelling');assert(destinationRecords.has(destination));assert(session['save:chosen']);
+ await worker({type:'PROGRESS',task:{id:task.id,state:'downloading',segments:99}});
+ await worker({type:'PREPARE_SAVE',id:task.id}).then(r=>assert.equal(r.accepted,false));
+ await ui({type:'CLEAR'});assert.equal(local.tasks.length,1);
+ finish({ok:false,error:'disk cleanup failed'});assert.equal((await cancelling).ok,false);
+ assert.equal(local.tasks[0].state,'cancelling');assert.equal(local.tasks[0].error,'disk cleanup failed');assert(destinationRecords.has(destination));
+ cancelReply=undefined;assert((await ui({type:'TASK',id:task.id,action:'cancel'})).ok);
+ assert.equal(local.tasks.length,0);assert(!destinationRecords.has(destination));assert(!session['save:chosen']);
+});
+test('direct native cancellation stops Chrome and removes the extension record',async()=>{
+ const asset=reset('MP4');await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];
+ assert((await ui({type:'TASK',id:task.id,action:'cancel'})).ok);
+ assert.equal(local.tasks.length,0);assert.equal(downloads.get(task.downloadId).state,'interrupted');
+});
+test('cancel also waits for an initial direct native download ID',async()=>{
+ const asset=reset('MP4');delayDownload=true;const starting=ui({type:'START',tabId:1,assetId:asset.id});
+ while(!downloads.size)await new Promise(r=>setTimeout(r,1));const id=local.tasks[0].id;
+ const cancelling=ui({type:'TASK',id,action:'cancel'});while(local.tasks[0].state!=='cancelling')await new Promise(r=>setTimeout(r,1));
+ releaseDownload!(0);await starting;assert((await cancelling).ok);assert.equal(local.tasks.length,0);assert.equal(downloads.values().next().value.state,'interrupted');
+});
+test('runnerless cancellation removes orphaned OPFS output and retains a record when cleanup fails',async()=>{
+ const asset=reset();await ui({type:'START',tabId:1,assetId:asset.id});const id=local.tasks[0].id;runnerAlive=false;temporaryFiles.add(id+'.mp4');temporaryFailure=true;
+ assert.equal((await ui({type:'TASK',id,action:'cancel'})).ok,false);assert.equal(local.tasks[0].state,'cancelling');assert.equal(temporaryFiles.size,1);
+ temporaryFailure=false;assert((await ui({type:'TASK',id,action:'cancel'})).ok);assert.equal(local.tasks.length,0);assert.equal(temporaryFiles.size,0);
+});
+test('a native save completed before cancellation keeps its completed record',async()=>{
+ const asset=reset('MP4');await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];downloads.get(task.downloadId).state='complete';
+ assert.equal((await ui({type:'TASK',id:task.id,action:'cancel'})).ok,false);assert.equal(local.tasks[0].state,'completed');
+});
+test('cancellation during runner launch waits for dispatch before stopping the new job',async()=>{
+ const asset=reset();let finish:(response:any)=>void=()=>{};runReply=()=>new Promise(resolve=>{finish=resolve;});
+ const starting=ui({type:'START',tabId:1,assetId:asset.id});while(!runner.some(m=>m.type==='RUN'))await new Promise(r=>setTimeout(r,1));
+ const id=local.tasks[0].id;const cancelling=ui({type:'TASK',id,action:'cancel'});while(local.tasks[0].state!=='cancelling')await new Promise(r=>setTimeout(r,1));
+ assert(!runner.some(m=>m.type==='CONTROL'));finish({ok:true});await starting;assert((await cancelling).ok);
+ assert(runner.some(m=>m.type==='CONTROL'&&m.action==='cancel'));assert.equal(local.tasks.length,0);
 });
 test('permission failure creates no task and exposes required CDN origin',async()=>{
  const asset=reset();granted=false;const response=await ui({type:'START',tabId:1,assetId:asset.id});assert.equal(response.ok,false);assert.deepEqual(response.origins,['https://cdn.example/*']);assert.equal(local.tasks.length,0);
@@ -155,9 +199,17 @@ test('final save reservation and cancellation are mutually exclusive in either o
  const asset=reset();await ui({type:'START',tabId:1,assetId:asset.id});const task=local.tasks[0];task.destinationId='selected';task.state='merging';
  const accepted=await worker({type:'PREPARE_SAVE',id:task.id});assert.equal(accepted.accepted,true);assert.equal(local.tasks[0].state,'saving');
  const cancel=await ui({type:'TASK',id:task.id,action:'cancel'});assert.equal(cancel.ok,false);assert.equal(local.tasks[0].state,'saving');
- local.tasks[0].state='downloading';await ui({type:'TASK',id:task.id,action:'cancel'});const denied=await worker({type:'PREPARE_SAVE',id:task.id});assert.equal(denied.accepted,false);assert.equal(local.tasks[0].state,'cancelled');
+ local.tasks[0].state='downloading';await ui({type:'TASK',id:task.id,action:'cancel'});const denied=await worker({type:'PREPARE_SAVE',id:task.id});assert.equal(denied.accepted,false);assert.equal(local.tasks.length,0);
 });
 
+test('cancellation during save commit removes even the late recorded picker result',async()=>{
+ const asset=reset();local.preferences={saveAs:true};const first=await ui({type:'START',tabId:1,assetId:asset.id});const destination=await rememberDestination(destinationFile().handle);
+ let finish:(response:any)=>void=()=>{};runReply=()=>new Promise(resolve=>{finish=resolve;});
+ const committed=chooser({type:'SAVE_COMMIT',requestId:first.value.id,destinationId:destination,filename:'chosen.mp4'});
+ while(!runner.some(m=>m.type==='RUN'))await new Promise(r=>setTimeout(r,1));const id=local.tasks[0].id;
+ const cancelling=ui({type:'TASK',id,action:'cancel'});while(local.tasks[0].state!=='cancelling')await new Promise(r=>setTimeout(r,1));finish({ok:true});
+ assert((await committed).ok);assert((await cancelling).ok);assert.equal(local.tasks.length,0);assert(!session['save:'+first.value.id]);assert(!destinationRecords.has(destination));
+});
 test('two downloads cannot concurrently replace the same chosen file',async()=>{
  const asset=reset('MP4');local.preferences={saveAs:true};const file=destinationFile();const id=await rememberDestination(file.handle);const first=await ui({type:'START',tabId:1,assetId:asset.id});
  assert((await chooser({type:'SAVE_COMMIT',requestId:first.value.id,destinationId:id,filename:'chosen.mp4'})).ok);

@@ -52,10 +52,10 @@ export async function openDestination(id:string):Promise<DestinationWriter> {
   const handle=await checkDestination(id);
   // File System Access writes to disk with an atomic close. Keep the stream
   // open across network pauses; only cancel/failure should discard its staging.
-  const stream=await handle.createWritable();const writer=stream.getWriter();let ended=false;
+  const stream=await handle.createWritable();const writer=stream.getWriter();let ended=false;let abortResult:Promise<void>|undefined;
   return {
     write:data=>writer.write(data),
     async close(){try{await writer.close();ended=true;}finally{if(ended)writer.releaseLock();}},
-    async abort(){if(ended)return;ended=true;try{await writer.abort();}finally{writer.releaseLock();}},
+    abort(){if(abortResult)return abortResult;if(ended)return Promise.resolve();ended=true;return abortResult=writer.abort().finally(()=>writer.releaseLock());},
   };
 }

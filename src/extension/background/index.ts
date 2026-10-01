@@ -22,6 +22,9 @@ let startQueue=Promise.resolve();
 let hostQueue=Promise.resolve();
 let headerQueue=Promise.resolve();
 const downloadJobs=new Set<number>();
+const nativeCreations=new Map<string,Promise<number|undefined>>();
+const runnerDispatches=new Map<string,Promise<void>>();
+const cancellations=new Map<string,Promise<void>>();
 const resolutionCache=new ResolutionCache<MediaAsset>();
 const frameDocuments=new Map<string,string>();
 
@@ -34,6 +37,7 @@ async function initialize() {
   await syncHosts();
   const tasks=await getTasks();
   for(const task of tasks) {
+    if(task.state==='cancelling'){await cancelTask(task.id).catch(()=>{});continue;}
     if(task.downloadId){await updateDownload(task.downloadId);continue;}
     if(activeStates.includes(task.state)) await patchTask(task.id,{state:'failed',error:t("the_browser_restarted_retry_will_download_from_the"),speed:0,outputUrl:undefined});
   }
@@ -309,9 +313,9 @@ async function startTask(tabId:number,assetId:string,variantId?:string,name?:str
   const task:DownloadRecord={id:crypto.randomUUID(),assetId,title:asset.title,filename:destination?.filename||filename,destinationId:destination?.id,pageUrl:asset.pageUrl,url:variant.url,protocol:asset.protocol,dash:variant.dash,resolutionUrl:(isBiliEndpoint(asset.pageUrl,asset.url)||isYoutubeEndpoint(asset.pageUrl,asset.url)||isDouyinEndpoint(asset.pageUrl,asset.url))?asset.url:undefined,quality:variant.label,state:'resolving',createdAt:Date.now(),updatedAt:Date.now(),bytes:0,segments:0,speed:0};
   await mutateTasks(current=>({tasks:[task,...current],value:undefined}));
   try {
-    if(['HLS','DASH'].includes(asset.protocol)||task.destinationId){await ensureRunner();await tellRunner({target:'runner',type:'RUN',task,language:(await getPreferences()).language});}
-    else {const downloadId=await chrome.downloads.download({url:variant.url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(task.id,{downloadId,state:'downloading'});await updateDownload(downloadId);}
-  }catch(error){await patchTask(task.id,{state:'failed',error:errorText(error)});if(destination)return {id:task.id,duplicate:false,failed:true};throw error;}
+    if(['HLS','DASH'].includes(asset.protocol)||task.destinationId){await launchRunner(task);}
+    else await createNativeDownload(task,variant.url);
+  }catch(error){await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===task.id&&t.state!=='cancelling'?{...t,state:'failed',error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));if(destination)return {id:task.id,duplicate:false,failed:true};throw error;}
   return{id:task.id,duplicate:false};
 }
 function errorText(error:unknown) {return error instanceof Error?error.message:t("operation_failed_please_retry");}
@@ -320,13 +324,14 @@ async function updateDownload(downloadId:number) {
   try {
     const [item]=await chrome.downloads.search({id:downloadId});if(!item)return;
     const task=(await getTasks()).find(t=>t.downloadId===downloadId);if(!task)return;
+    if(task.state==='cancelling')return;
     if(task.state==='cancelled'&&item.state==='in_progress')return;
     const state=item.state==='complete'?'completed':item.state==='interrupted'?(task.state==='cancelled'||item.error==='USER_CANCELED'?'cancelled':'failed'):item.paused?'paused':['HLS','DASH'].includes(task.protocol)?'saving':'downloading';
     const bytes=['HLS','DASH'].includes(task.protocol)?task.bytes:item.bytesReceived;
     const totalBytes=item.totalBytes>0?item.totalBytes:undefined;
     if(task.state===state&&task.bytes===bytes&&task.totalBytes===totalBytes)return;
     const elapsed=Math.max(.001,(Date.now()-task.updatedAt)/1000);
-    await patchTask(task.id,{state,bytes,totalBytes,speed:state==='downloading'?Math.max(0,(item.bytesReceived-task.bytes)/elapsed):0,error:state==='failed'?t("file_save_failed",[item.error||t("please_retry")]):undefined});
+    await mutateTasks(tasks=>({tasks:tasks.map(current=>current.id===task.id&&current.state!=='cancelling'?{...current,state,bytes,totalBytes,speed:state==='downloading'?Math.max(0,(item.bytesReceived-task.bytes)/elapsed):0,error:state==='failed'?t("file_save_failed",[item.error||t("please_retry")]):undefined,updatedAt:Date.now()}:current),value:undefined}));
     if(['completed','failed','cancelled'].includes(state)&&['HLS','DASH'].includes(task.protocol)){await tellRunner({target:'runner',type:'RELEASE',id:task.id}).catch(()=>{});await patchTask(task.id,{outputUrl:undefined});}
   }finally{downloadJobs.delete(downloadId);}
 }
@@ -334,6 +339,88 @@ chrome.downloads.onChanged.addListener(delta=>{void updateDownload(delta.id);});
 chrome.alarms.create('reconcile',{periodInMinutes:1});
 chrome.alarms.onAlarm.addListener(()=>{void getTasks().then(tasks=>Promise.all(tasks.filter(t=>t.downloadId&&activeStates.includes(t.state)).map(t=>updateDownload(t.downloadId!))));});
 
+function launchRunner(task:DownloadRecord):Promise<void> {
+  const dispatch=(async()=>{
+    await ensureRunner();
+    const current=(await getTasks()).find(t=>t.id===task.id);
+    if(!current||!activeStates.includes(current.state)||current.state==='cancelling')return;
+    await tellRunner({target:'runner',type:'RUN',task,language:(await getPreferences()).language});
+  })();
+  runnerDispatches.set(task.id,dispatch);
+  return dispatch.finally(()=>{if(runnerDispatches.get(task.id)===dispatch)runnerDispatches.delete(task.id);});
+}
+// Track creation before its ID is available, so cancellation also stops a
+// native save that Chrome has accepted but has not acknowledged yet.
+async function createNativeDownload(task:DownloadRecord,url:string) {
+  const creation=(async()=>{
+    const current=(await getTasks()).find(t=>t.id===task.id);
+    if(!current||!activeStates.includes(current.state)||current.state==='cancelling')return;
+    return chrome.downloads.download({url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});
+  })();
+  nativeCreations.set(task.id,creation);
+  try {
+    const downloadId=await creation;if(downloadId===undefined)return;
+    await patchTask(task.id,{downloadId});
+    const current=(await getTasks()).find(t=>t.id===task.id);
+    if((!current||['cancelling','cancelled'].includes(current.state))&&!cancellations.has(task.id)){
+      const [item]=await chrome.downloads.search({id:downloadId});
+      if(item?.state==='in_progress')await chrome.downloads.cancel(downloadId);
+    }
+    await updateDownload(downloadId);return downloadId;
+  }finally{if(nativeCreations.get(task.id)===creation)nativeCreations.delete(task.id);}
+}
+async function removeTemporary(id:string) {
+  try {
+    const root=await navigator.storage.getDirectory();
+    const directory=await root.getDirectoryHandle('stream-lens');
+    await directory.removeEntry(id+'.mp4');
+  }catch(error){if(!(error instanceof DOMException&&error.name==='NotFoundError'))throw error;}
+}
+function cancelTask(id:string):Promise<void> {
+  const pending=cancellations.get(id);if(pending)return pending;
+  const operation=cancelTaskNow(id).finally(()=>{cancellations.delete(id);});
+  cancellations.set(id,operation);return operation;
+}
+async function cancelTaskNow(id:string) {
+  const task=await mutateTasks(tasks=>{
+    const current=tasks.find(t=>t.id===id);
+    if(!current||(!activeStates.includes(current.state)&&current.state!=='cancelled'))return {tasks,value:undefined};
+    if(current.destinationId&&current.state==='saving')throw new Error(t("saving_the_file_please_wait"));
+    return {tasks:tasks.map(t=>t.id===id?{...t,state:'cancelling',speed:0,error:undefined,updatedAt:Date.now()}:t),value:current};
+  });
+  if(!task)return;
+  try {
+    const creation=nativeCreations.get(id);
+    // A rejected creation means there is no native file to stop.
+    const downloadId=task.downloadId??(creation?await creation.catch(()=>undefined):undefined);
+    if(downloadId!==undefined){
+      const [item]=await chrome.downloads.search({id:downloadId});
+      if(item?.state==='complete'){
+        await patchTask(id,{state:'completed',speed:0});
+        if(['HLS','DASH'].includes(task.protocol)&&await chrome.offscreen.hasDocument())await tellRunner({target:'runner',type:'RELEASE',id});
+        throw new Error(t('download_already_finished'));
+      }
+      if(item?.state==='in_progress')await chrome.downloads.cancel(downloadId);
+    }
+    if(['HLS','DASH'].includes(task.protocol)||task.destinationId){
+      await runnerDispatches.get(id)?.catch(()=>{});
+      if(await chrome.offscreen.hasDocument())await tellRunner({target:'runner',type:'CONTROL',id,action:'cancel'});
+      if(!task.destinationId)await removeTemporary(id);
+    }
+    // A save commit may still be recording the newly started task's result.
+    await startQueue;
+    if(task.destinationId)await forgetDestination(task.destinationId);
+    const stored=await chrome.storage.session.get(null);
+    for(const [key,value] of Object.entries(stored))if(key.startsWith('save:')&&(value as SaveRequest).result?.id===id){
+      await chrome.storage.session.remove(key);const request=value as SaveRequest;
+      if(request.windowId!==undefined)await chrome.windows.remove(request.windowId).catch(()=>{});
+    }
+    await mutateTasks(tasks=>({tasks:tasks.filter(t=>t.id!==id||t.state!=='cancelling'),value:undefined}));
+  }catch(error){
+    await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===id&&t.state==='cancelling'?{...t,error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));
+    throw error;
+  }
+}
 async function taskCommand(id:string,action:Extract<UiCommand,{type:'TASK'}>['action'],destination?:{id:string;filename:string}) {
   const task=(await getTasks()).find(t=>t.id===id);if(!task)throw new Error(t("download_record_not_found"));
   if(action==='show'){if(task.downloadId===undefined||task.state!=='completed')throw new Error(t("the_file_has_not_been_saved_yet"));await chrome.downloads.show(task.downloadId);return;}
@@ -376,19 +463,16 @@ async function taskCommand(id:string,action:Extract<UiCommand,{type:'TASK'}>['ac
     const reset:DownloadRecord={...task,...refreshed,destinationId:destination?.id,filename:destination?.filename||task.filename,state:'resolving',bytes:0,segments:0,totalSegments:undefined,totalBytes:undefined,downloadId:undefined,error:undefined,neededOrigins:undefined,speed:0,updatedAt:Date.now()};
     await patchTask(id,reset);
     if(task.destinationId&&task.destinationId!==reset.destinationId)await forgetDestination(task.destinationId).catch(()=>{});
-    if(['HLS','DASH'].includes(task.protocol)||reset.destinationId){try{await ensureRunner();await tellRunner({target:'runner',type:'RUN',task:reset,language:(await getPreferences()).language});}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
-    else{try{const downloadId=await chrome.downloads.download({url:reset.url,filename:reset.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(id,{downloadId,state:'downloading'});await updateDownload(downloadId);}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
+    if(['HLS','DASH'].includes(task.protocol)||reset.destinationId){try{await launchRunner(reset);}catch(error){await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===id&&t.state!=='cancelling'?{...t,state:'failed',error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));if(destination)return {id,duplicate:false,failed:true};throw error;}}
+    else{try{await createNativeDownload(reset,reset.url);}catch(error){await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===id&&t.state!=='cancelling'?{...t,state:'failed',error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));if(destination)return {id,duplicate:false,failed:true};throw error;}}
     return;
   }
-  if(!activeStates.includes(task.state))return;
+  if(action==='cancel')return cancelTask(id);
+  if(!activeStates.includes(task.state)||task.state==='cancelling')return;
   if(task.destinationId&&task.state==='saving')throw new Error(t("saving_the_file_please_wait"));
-  if(task.downloadId){if(action==='pause')await chrome.downloads.pause(task.downloadId);if(action==='resume')await chrome.downloads.resume(task.downloadId);if(action==='cancel'){await patchTask(id,{state:'cancelled'});await chrome.downloads.cancel(task.downloadId);}await updateDownload(task.downloadId);}
+  if(task.downloadId!==undefined){if(action==='pause')await chrome.downloads.pause(task.downloadId);if(action==='resume')await chrome.downloads.resume(task.downloadId);await updateDownload(task.downloadId);}
   else if(['HLS','DASH'].includes(task.protocol)||task.destinationId) {
-    if(action==='cancel'){
-      const accepted=await mutateTasks(tasks=>{const current=tasks.find(t=>t.id===id);const accepted=!!current&&activeStates.includes(current.state)&&!(current.destinationId&&current.state==='saving');return {tasks:tasks.map(t=>t.id===id&&accepted?{...t,state:'cancelled',speed:0,updatedAt:Date.now()}:t),value:accepted};});
-      if(!accepted)throw new Error(t("saving_the_file_please_wait"));
-    }
-    if(!await chrome.offscreen.hasDocument()){if(action==='cancel')return;await patchTask(id,{state:'failed',error:t("the_download_service_stopped_retry_from_the_beginning")});return;}
+    if(!await chrome.offscreen.hasDocument()){await patchTask(id,{state:'failed',error:t("the_download_service_stopped_retry_from_the_beginning")});return;}
     await tellRunner({target:'runner',type:'CONTROL',id,action});
   }
 }
@@ -431,17 +515,17 @@ async function handleUi(command:UiCommand):Promise<unknown> {
 }
 async function handleWorker(message:WorkerMessage) {
   const id=message.type==='PROGRESS'?message.task?.id:message.id;if(typeof id!=='string')return;
-  const task=(await getTasks()).find(t=>t.id===id);if(!task||['cancelled','completed'].includes(task.state)){if(message.type==='OUTPUT')await tellRunner({target:'runner',type:'RELEASE',id}).catch(()=>{});return;}
+  const task=(await getTasks()).find(t=>t.id===id);if(!task||['cancelling','cancelled','completed'].includes(task.state)){if(message.type==='OUTPUT')await tellRunner({target:'runner',type:'RELEASE',id}).catch(()=>{});return;}
   if(message.type==='SAVED'){if(!task.destinationId||task.state!=='saving')throw new Error(t("invalid_save_task"));await patchTask(id,{state:'completed',speed:0,error:undefined});await forgetDestination(task.destinationId).catch(()=>{});return;}
-  if(message.type==='PROGRESS') {await mutateTasks(tasks=>({tasks:tasks.map(current=>current.id===id&&!['cancelled','completed','failed'].includes(current.state)&&!(current.destinationId&&current.state==='saving'&&message.task.state&&message.task.state!=='failed')?{...current,...message.task,id:current.id,updatedAt:Date.now()}:current),value:undefined}));return;}
+  if(message.type==='PROGRESS') {await mutateTasks(tasks=>({tasks:tasks.map(current=>current.id===id&&!['cancelling','cancelled','completed','failed'].includes(current.state)&&!(current.destinationId&&current.state==='saving'&&message.task.state&&message.task.state!=='failed')?{...current,...message.task,id:current.id,updatedAt:Date.now()}:current),value:undefined}));return;}
   if(message.type==='OUTPUT') {
     if(!message.url.startsWith('blob:chrome-extension://'+chrome.runtime.id+'/'))throw new Error(t("invalid_video_file_source"));
     try {
-      const accepted=await mutateTasks(tasks=>{const current=tasks.find(t=>t.id===id);const accepted=!!current&&activeStates.includes(current.state);return {tasks:tasks.map(t=>t.id===id&&accepted?{...t,state:'saving',outputUrl:message.url,updatedAt:Date.now()}:t),value:accepted};});
+      const accepted=await mutateTasks(tasks=>{const current=tasks.find(t=>t.id===id);const accepted=!!current&&activeStates.includes(current.state)&&current.state!=='cancelling';return {tasks:tasks.map(t=>t.id===id&&accepted?{...t,state:'saving',outputUrl:message.url,updatedAt:Date.now()}:t),value:accepted};});
       if(!accepted){await tellRunner({target:'runner',type:'RELEASE',id});return;}
-      const downloadId=await chrome.downloads.download({url:message.url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(id,{downloadId});const current=(await getTasks()).find(t=>t.id===id);if(current?.state==='cancelled')await chrome.downloads.cancel(downloadId);await updateDownload(downloadId);
+      await createNativeDownload(task,message.url);
     }
-    catch(error){await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===id&&t.state!=='cancelled'?{...t,state:'failed',error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));await tellRunner({target:'runner',type:'RELEASE',id});}
+    catch(error){await mutateTasks(tasks=>({tasks:tasks.map(t=>t.id===id&&!['cancelling','cancelled'].includes(t.state)?{...t,state:'failed',error:errorText(error),updatedAt:Date.now()}:t),value:undefined}));await tellRunner({target:'runner',type:'RELEASE',id});}
   }
 }
 async function handlePlayer(command:PlayerCommand,sender:chrome.runtime.MessageSender):Promise<unknown> {
@@ -496,7 +580,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   }
   if(sender.url===offscreenUrl&&message.type==='PREPARE_SAVE'){
     void mutateTasks(tasks=>{
-      const task=tasks.find(t=>t.id===message.id);const accepted=!!task&&!!task.destinationId&&activeStates.includes(task.state)&&task.state!=='paused';
+      const task=tasks.find(t=>t.id===message.id);const accepted=!!task&&!!task.destinationId&&activeStates.includes(task.state)&&!['paused','cancelling'].includes(task.state);
       return {tasks:tasks.map(t=>t.id===message.id&&accepted?{...t,state:'saving',speed:0,updatedAt:Date.now()}:t),value:accepted};
     }).then(accepted=>respond({ok:true,accepted}));return true;
   }
@@ -508,10 +592,10 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.url===offscreenUrl&&message.type==='REFRESH_HLS'){
     void (async()=>{
       const task=(await getTasks()).find(t=>t.id===message.id);
-      if(!task||task.protocol!=='HLS'||!activeStates.includes(task.state)||task.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
+      if(!task||task.protocol!=='HLS'||!activeStates.includes(task.state)||task.state==='cancelling'||task.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
       const url=await refreshHls(task);
       const current=(await getTasks()).find(t=>t.id===task.id);
-      if(!current||!activeStates.includes(current.state)||current.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
+      if(!current||!activeStates.includes(current.state)||current.state==='cancelling'||current.url!==message.url)throw new Error(t("video_task_changed_cannot_renew_its_url"));
       await patchTask(task.id,{url});return {url};
     })().then(value=>respond({ok:true,value})).catch(error=>respond({ok:false,error:errorText(error),origins:error instanceof PermissionError?error.origins:undefined}));return true;
   }

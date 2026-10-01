@@ -1005,10 +1005,13 @@ export const messages = {
     "zh": "取消下载？",
     "en": "Cancel download?"
   },
-  "the_download_will_stop_its_record_will_be": {
-    "zh": "下载将停止，记录会保留。",
-    "en": "The download will stop. Its record will be kept."
+  "cancel_download_discards_data_and_record": {
+    "zh": "停止下载，丢弃未完成的数据并移除记录。",
+    "en": "Stop downloading, discard unfinished data, and remove the record."
   },
+  "cancelling": {"zh": "正在取消", "en": "Cancelling"},
+  "retry_cancellation": {"zh": "重试取消", "en": "Retry cancellation"},
+  "download_already_finished": {"zh": "下载已完成", "en": "Download already finished"},
   "cancel_download_254": {
     "zh": "取消下载",
     "en": "Cancel download"

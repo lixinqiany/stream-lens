@@ -74,6 +74,8 @@
 
 - Live streams, DASH on sites without an adapter, separate HLS audio, timeline changes and DRM / SAMPLE-AES are not supported. Preview-only content is not offered as a full download.
 - Worker-based transmuxing, closed Shadow DOM, custom media elements and shared ad players may prevent source detection.
+- Pause or resume from the upper-right corner of a downloading task. HLS / DASH retain downloaded segments; closing the sidebar does not interrupt the task.
+- Cancellation stops the download, discards unfinished data and removes its record automatically. Failed cleanup can be retried. Existing contents of a preselected file are preserved; a newly created picker file may remain empty (0 bytes).
 - Closing the browser interrupts streaming tasks; retries restart from the beginning. Resuming direct downloads to the default folder depends on the server. Direct downloads to a preselected location restart when resumed.
 - Automated checks do not replace real Chrome validation of native save dialogs, cross-document file access or website compatibility. See the [validation log](docs/validation.md) (Chinese).
 

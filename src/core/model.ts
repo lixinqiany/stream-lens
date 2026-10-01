@@ -10,7 +10,7 @@ export type MediaAsset = {
   variants?: Variant[]; resolutionError?: string; resolutionState?:'loading'|'ready'|'failed'; resolutionOrigins?:string[]; resolvedAt?:number; evidence: VideoEvidence['source'][];
   playerBindings?: {playerId: string; sourceKey: string; seenAt?:number; frameId?:number; documentId?:string}[];
 };
-export type DownloadState = 'resolving' | 'downloading' | 'paused' | 'merging' | 'saving' | 'completed' | 'failed' | 'cancelled';
+export type DownloadState = 'resolving' | 'downloading' | 'paused' | 'merging' | 'saving' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
 export type DownloadRecord = {
   id: string; assetId: string; title: string; filename: string; pageUrl: string; url: string;
   protocol: Protocol; quality: string; state: DownloadState;
@@ -27,7 +27,7 @@ export type PageCatalog = { pageUrl: string; assets: MediaAsset[]; documentKey: 
 export type PendingSave = {id:string;filename:string;pageUrl:string;retryId?:string};
 export type Snapshot = { page: PageCatalog | null; tasks: DownloadRecord[]; preferences: Preferences; pendingSaves?:PendingSave[] };
 export const runningStates: DownloadState[] = ['resolving', 'downloading', 'merging', 'saving'];
-export const activeStates: DownloadState[] = [...runningStates, 'paused'];
+export const activeStates: DownloadState[] = [...runningStates, 'paused', 'cancelling'];
 export const clearableStates: DownloadState[] = ['completed', 'cancelled'];
 export function httpUrl(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length > 16000) return;

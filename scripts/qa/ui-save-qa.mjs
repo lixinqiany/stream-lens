@@ -14,6 +14,7 @@ const event={addListener(){},removeListener(){}};
 w.chrome={tabs:{query:async()=>[{id:1,url:'https://page.example/'}],onActivated:event,onUpdated:event},permissions:{contains:async()=>true,onAdded:event,onRemoved:event},storage:{onChanged:event},runtime:{getManifest:()=>({version}),sendMessage:async m=>{
  calls.push(m);if(m.type==='SNAPSHOT')return {ok:true,value:{page:null,tasks,preferences:prefs,pendingSaves}};
  if(m.type==='TASK'&&holdTask)return new Promise(resolve=>{heldAction=()=>resolve({ok:true});});
+ if(m.type==='TASK'){if(m.action==='pause')tasks=tasks.map(t=>t.id===m.id?{...t,state:'paused'}:t);if(m.action==='resume')tasks=tasks.map(t=>t.id===m.id?{...t,state:'downloading'}:t);if(m.action==='cancel')tasks=tasks.filter(t=>t.id!==m.id);}
  if(m.type==='SAVE_CANCEL')pendingSaves=[];
  if(m.type==='CLEAR')tasks=tasks.filter(t=>!['completed','cancelled'].includes(t.state));
  return {ok:true};
@@ -32,6 +33,11 @@ button('返回').click();await settle();assert(w.document.querySelector('.sl-tas
 button('失败').click();await settle();holdTask=true;button('重试').click();button('重试').click();await settle();assert.equal(calls.filter(m=>m.type==='TASK').length,1);assert(button('重试').disabled);assert(w.document.querySelector('[aria-busy="true"]'));heldAction();holdTask=false;await settle();
 pendingSaves=[{id:'save-one',filename:'pending.mp4',pageUrl:'https://page.example/'}];await new Promise(r=>setTimeout(r,2050));button('进行中').click();await settle();assert(w.document.body.textContent.includes('等待选择保存位置'));const card=w.document.querySelector('.sl-pending-card');card.querySelector('.sl-secondary').click();await settle();assert(calls.some(m=>m.type==='SAVE_FOCUS'));card.querySelector('.sl-text-button').click();await settle();assert(!w.document.querySelector('.sl-pending-card'));
 button('已结束').click();await settle();assert(w.document.body.textContent.includes('暂无已结束记录'));button('查看全部任务').click();await settle();assert.equal(w.document.querySelectorAll('.sl-task-card').length,2);
+w.document.querySelector('[aria-label="暂停下载"]').click();await settle();assert.equal(tasks.find(t=>t.id==='downloading').state,'paused');
+w.document.querySelector('[aria-label="继续下载"]').click();await settle();assert.equal(tasks.find(t=>t.id==='downloading').state,'downloading');
+button('取消下载').click();await settle();assert(w.document.querySelector('[role="dialog"]').textContent.includes('丢弃未完成的数据并移除记录'));assert(!w.document.querySelector('[role="dialog"]').textContent.includes('记录会保留'));
+w.document.querySelector('.sl-danger-button').click();await settle();assert.deepEqual(tasks.map(t=>t.state),['failed']);assert(!w.document.querySelector('[role="dialog"]'));assert.equal(w.document.querySelectorAll('.sl-task-card').length,1);
+tasks.push({...base,id:'cleanup',state:'cancelling',error:'disk cleanup failed'});await new Promise(r=>setTimeout(r,2050));assert(w.document.body.textContent.includes('正在取消'));assert(button('重试取消'));assert(button('清理记录').disabled);button('重试取消').click();await settle();w.document.querySelector('.sl-danger-button').click();await settle();assert.deepEqual(tasks.map(t=>t.state),['failed']);
 assert.equal(w.document.body.textContent.split('v'+version).length-1,1);dom.window.close();
 const pickerBundle=await build({entryPoints:['src/extension/save/index.ts'],bundle:true,write:false,format:'iife',platform:'browser',loader:{'.css':'empty'}});
 for(const cancelled of [true,false]){
@@ -48,4 +54,4 @@ for(const cancelled of [true,false]){
  else{const commit=messages.find(m=>m.type==='SAVE_COMMIT');assert.equal(commit.filename,'mine.mp4');assert(stored.has(commit.destinationId));}
  originalClose();
 }
-console.log('UI QA passed: visible clear button, failed retention/filter, concise copy, one version, picker cancel/commit before download. No browser operated.');
+console.log('UI QA passed: visible clear button, failed retention/filter, concise copy, one version, pause/resume controls, cancel removal/cleanup retry, picker cancel/commit before download. No browser operated.');

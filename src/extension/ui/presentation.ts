@@ -1,7 +1,7 @@
 import {t} from '../../i18n';
 import {activeStates,clearableStates,type DownloadRecord} from '../../core/model';
 export type TaskFilter='all'|'active'|'failed'|'ended';
-export function statusLabel(state:DownloadRecord['state']){return t({resolving:'resolving',downloading:'downloading',paused:'paused',merging:'merging',saving:'saving',completed:'completed',failed:'download_failed',cancelled:'cancelled'}[state] as import('../../i18n/messages').MessageKey);}
+export function statusLabel(state:DownloadRecord['state']){return t({resolving:'resolving',downloading:'downloading',paused:'paused',merging:'merging',saving:'saving',completed:'completed',failed:'download_failed',cancelling:'cancelling',cancelled:'cancelled'}[state] as import('../../i18n/messages').MessageKey);}
 export function formatProgress(value?:number){
   if(value===undefined||!Number.isFinite(value))return '';
   return value>0&&value<1?'<1%':Math.floor(Math.max(0,Math.min(100,value)))+'%';
