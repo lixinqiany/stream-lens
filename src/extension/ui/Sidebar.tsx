@@ -8,7 +8,7 @@ import {selectedAssets} from '../../core/discovery/selection';
 import {PermissionError} from '../../core/hls/fetch';
 import {statusLabel,formatProgress,formatSize as size,formatDuration as duration,matchesFilter,type TaskFilter} from './presentation';
 type View='page'|'tasks'|'settings';
-const version=chrome.runtime.getManifest?.().version||'0.3.0';
+const version=chrome.runtime.getManifest?.().version||'0.3.1';
 function Icon({label,onClick,children,disabled}:{label:string;onClick:()=>void;children:ReactNode;disabled?:boolean}){return <button type="button" className="sl-icon-button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>{children}</button>;}
 export function Sidebar() {
   const api=useExtension();

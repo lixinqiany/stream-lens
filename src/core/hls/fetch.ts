@@ -13,7 +13,7 @@ async function hasPermission(pattern:string) {
   const response=await chrome.runtime.sendMessage({type:'CHECK_ORIGIN',pattern});
   return response?.ok===true&&response.allowed===true;
 }
-export async function allowedFetch(url:string,options:{signal?:AbortSignal;range?:Range;limit?:number;cache?:RequestCache}={}) {
+export async function allowedFetch(url:string,options:{signal?:AbortSignal;range?:Range;limit?:number;cache?:RequestCache;json?:unknown}={}) {
   const response=await allowedResponse(url,options);
   const limit=options.limit||64*1024*1024;
   const declared=Number(response.headers.get('content-length'));
@@ -30,12 +30,13 @@ export async function allowedFetch(url:string,options:{signal?:AbortSignal;range
   if(options.range&&size!==options.range.length) throw new Error(t("video_segment_is_incomplete"));
   return {data,url:response.url||url};
 }
-export async function allowedResponse(url:string,options:{signal?:AbortSignal;range?:Range;cache?:RequestCache;stream?:boolean}={}) {
+export async function allowedResponse(url:string,options:{signal?:AbortSignal;range?:Range;cache?:RequestCache;stream?:boolean;json?:unknown}={}) {
   const pattern=originPattern(url);
   if(!await hasPermission(pattern)) throw new PermissionError([pattern]);
   const headers:Record<string,string>={};
+  if(options.json!==undefined)headers['Content-Type']='application/json';
   if(options.range) headers.Range=`bytes=${options.range.offset}-${options.range.offset+options.range.length-1}`;
-  const response=await fetch(url,{credentials:'include',headers,cache:options.cache,signal:options.stream?options.signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(45000)]):AbortSignal.timeout(45000)});
+  const response=await fetch(url,{method:options.json===undefined?'GET':'POST',body:options.json===undefined?undefined:JSON.stringify(options.json),credentials:'include',headers,cache:options.cache,signal:options.stream?options.signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(45000)]):AbortSignal.timeout(45000)});
   // Redirect targets also require explicit permission before their contents are consumed.
   const finalPattern=originPattern(response.url||url);
   if(finalPattern!==pattern&&!await hasPermission(finalPattern)) {await response.body?.cancel();throw new PermissionError([finalPattern]);}

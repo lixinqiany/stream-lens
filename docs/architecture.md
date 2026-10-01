@@ -26,6 +26,7 @@ Without a chosen destination: HLS / DASH → OPFS / Blob → Chrome downloads
 | --- | --- |
 | core/model | 媒体、规格、任务、设置和进度模型 |
 | core/discovery/catalog | 精确 URL 去重、证据融合、主播放器排序和广告提示 |
+| core/sites | YouTube / Douyin / Bilibili 的规范来源、公开播放数据与轨道选择 |
 | core/hls/parser | HLS 清单、范围、初始化、密钥、IV 与可支持性线索 |
 | core/hls/fetch | 授权请求、超时、重试调用所需的范围与字节上限 |
 | core/hls/transmux、mp4 | TS 增量转封装、初始化与轨道校验 |
@@ -52,7 +53,7 @@ HLS/parser、媒体模型与目录归并可以独立测试。Chrome 请求和存
 
 ## 权限与边界
 
-基础权限为 activeTab / tabs / scripting / storage / downloads / sidePanel / webRequest / offscreen / alarms。HTTP/HTTPS host 权限随安装声明，用于页面识别和 CDN 访问；Chrome 限制站点访问时提供恢复入口。Bilibili 来源头规则使用 declarativeNetRequestWithHostAccess。无 cookies、debugger 或 nativeMessaging 权限。
+基础权限为 activeTab / tabs / scripting / storage / downloads / sidePanel / webRequest / offscreen / alarms。HTTP/HTTPS host 权限随安装声明，用于页面识别和 CDN 访问；Chrome 限制站点访问时提供恢复入口。来源头规则使用 declarativeNetRequestWithHostAccess，仅作用于扩展发起的对应站点请求；抖音分享页请求使用移动端 User-Agent，媒体来源头为官网。无 cookies、debugger 或 nativeMessaging 权限。
 
 响应体消费前核对重定向 CDN 的权限；范围请求核对状态、Content-Range 与长度。后台验证扩展 UI、内容脚本和 offscreen 的消息来源。页面标题文本渲染，脚本只读字面 URL、不执行。资源链接保留签名查询参数，不删 query 去重，也不在诊断中导出。
 
@@ -65,3 +66,9 @@ HLS/parser、媒体模型与目录归并可以独立测试。Chrome 请求和存
 用户可见错误和状态在产生时按当前语言输出，旧任务错误通过已知模板匹配在显示时转换。匹配只应用于扩展错误和画质字段，不翻译网页标题、URL 或文件名。Chrome 原生文件窗口使用系统语言；扩展只能本地化窗口外的页面与文件类型说明。
 
 构建从同一文本源生成 `_locales/en/messages.json` 和 `_locales/zh_CN/messages.json`，用于 manifest 的名称、简介与工具栏标题，`default_locale` 为 `en`。这些 Chrome 元数据跟随浏览器语言；扩展内手动选择不会修改 Chrome 的语言或商店目录语言。
+
+## 平台适配
+
+规范来源与用户选中的播放器及当次 sourceKey 绑定，优先于独立音轨、视频轨道和预加载资源。YouTube watch / Shorts 统一为确切 video ID，广告 class 改变时解绑正片；抖音 modal_id / video 路径绑定确切作品 ID，多播放器无法确认时不关联分享页。SPA 导航清理选择与解析状态。
+
+YouTube 只读页面字面 JSON，再按需请求公开播放器响应，筛选含 init/index 字节范围的 H.264 / AAC。不执行签名脚本或处理验证码、DRM；正常播放接口拒绝、CDN 拒绝均失败。抖音建立官方分享页正常会话，再读取渲染数据中 exact aweme_id 的完整 MP4，保留原播放地址。重试重新解析签名；B 站普通 BV 重试使用原 URL 的 p 分集，YouTube 保留原画质。

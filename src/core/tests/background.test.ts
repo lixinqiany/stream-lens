@@ -223,3 +223,35 @@ test('language preference persists, rejects invalid values and reaches the activ
  const invalid=await ui({type:'PREFERENCES',patch:{language:'xx'}});assert.equal(invalid.value.language,'en');
  runnerAlive=true;await ui({type:'PREFERENCES',patch:{language:'zh_CN'}});assert(runner.some(m=>m.type==='LANGUAGE'&&m.language==='zh_CN'));
 });
+
+test('YouTube background resolves canonical source, starts paired tracks and renews same-quality retry',async()=>{
+ reset();const previous=globalThis.fetch;const pageUrl='https://www.youtube.com/watch?v=jNQXAC9IVRw';
+ const formats=[{itag:137,height:1080,mimeType:'video/mp4; codecs="avc1.640028"'},{itag:140,mimeType:'audio/mp4; codecs="mp4a.40.2"'}].map(f=>({...f,url:`https://rr1.googlevideo.com/videoplayback?itag=${f.itag}&token=fresh`,initRange:{start:'0',end:'100'},indexRange:{start:'101',end:'180'}}));
+ const data={playabilityStatus:{status:'OK'},videoDetails:{videoId:'jNQXAC9IVRw',lengthSeconds:'19'},streamingData:{adaptiveFormats:formats}};
+ globalThis.fetch=async()=>new Response('ytInitialPlayerResponse = '+JSON.stringify(data)+';');
+ try{
+  const asset=mergeEvidence([],{url:pageUrl,title:'Video',pageUrl,width:1920,height:1080,playing:true,primary:true,protected:false,source:'player',format:'DASH',contentType:'video/mp4'})[0];session['page:1']={pageUrl,assets:[asset],documentKey:'youtube',updatedAt:Date.now()};
+  const response=await ui({type:'START',tabId:1,assetId:asset.id,variantId:'yt-137'});assert(response.ok,response.error);assert.equal(downloads.size,0);assert.match(local.tasks[0].dash.audio.url,/itag=140/);assert.equal(local.tasks[0].resolutionUrl,pageUrl);
+  local.tasks[0].state='failed';local.tasks[0].url='https://rr1.googlevideo.com/expired';const retry=await ui({type:'TASK',id:local.tasks[0].id,action:'retry'});assert(retry.ok,retry.error);assert.equal(local.tasks[0].quality,'1080p');assert.match(local.tasks[0].url,/token=fresh/);
+ }finally{globalThis.fetch=previous;}
+});
+
+test('Douyin background validates share metadata, scopes headers and starts/refetches a complete MP4',async()=>{
+ reset();const previous=globalThis.fetch;const pageUrl='https://www.douyin.com/jingxuan?modal_id=7677919026948967689',endpoint='https://www.iesdouyin.com/share/video/7677919026948967689/?from_aid=1128&from_ssr=1';
+ globalThis.fetch=async()=>new Response('window._ROUTER_DATA = '+JSON.stringify({loaderData:{'video_(id)/page':{itemId:'7677919026948967689',videoInfoRes:{status_code:0,item_list:[{aweme_id:'7677919026948967689',video:{height:2160,duration:1275496,play_addr:{url_list:['https://v95.douyinvod.com/play?token=fresh']}}}]}}}})+';');
+ try{
+  const asset=mergeEvidence([],{url:endpoint,title:'Video',pageUrl,width:3840,height:2160,playing:true,primary:true,protected:false,source:'player',contentType:'video/mp4'})[0];session['page:1']={pageUrl,assets:[asset],documentKey:'douyin',updatedAt:Date.now()};
+  const response=await ui({type:'START',tabId:1,assetId:asset.id,variantId:'dy-original'});assert(response.ok,response.error);assert.equal(local.tasks[0].protocol,'MP4');assert.equal(local.tasks[0].resolutionUrl,endpoint);assert.equal(downloads.size,1);assert.match(downloads.values().next().value.url,/token=fresh/);
+  const uaRule=headerRules.find(r=>r.id===1002);assert.deepEqual(uaRule.condition.initiatorDomains,['test']);assert.match(uaRule.condition.regexFilter,/share\/video/);assert(uaRule.action.requestHeaders[0].value.includes('iPhone'));
+  local.tasks[0].state='failed';local.tasks[0].url='https://v95.douyinvod.com/expired';const retry=await ui({type:'TASK',id:local.tasks[0].id,action:'retry'});assert(retry.ok,retry.error);assert.match(downloads.get(local.tasks[0].downloadId).url,/token=fresh/);
+ }finally{globalThis.fetch=previous;}
+});
+
+test('ordinary Bilibili retry renews exactly the requested multipart page',async()=>{
+ reset();const previous=globalThis.fetch,requested:string[]=[];const pageUrl='https://www.bilibili.com/video/BV1GJ411x7h7?p=2',endpoint='https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7h7';
+ globalThis.fetch=async(url)=>{requested.push(String(url));return new Response(JSON.stringify(String(url).includes('/x/web-interface/view')?{code:0,data:{bvid:'BV1GJ411x7h7',pages:[{cid:1},{cid:2}]}}:{code:0,data:{timelength:10000,dash:{video:[{height:480,codecs:'avc1.64001f',baseUrl:'https://cdn.example/video.m4s?fresh',SegmentBase:{Initialization:'0-100',indexRange:'101-180'}}],audio:[{codecs:'mp4a.40.2',baseUrl:'https://cdn.example/audio.m4s?fresh',SegmentBase:{Initialization:'0-100',indexRange:'101-180'}}]}}}));};
+ try{
+  local.tasks=[{id:'bv-retry',assetId:'bv',title:'BV',filename:'bv.mp4',pageUrl,url:'https://cdn.example/expired.m4s',protocol:'DASH',resolutionUrl:endpoint,quality:'480p',state:'failed',bytes:0,segments:0,speed:0,createdAt:0,updatedAt:0}];
+  const response=await ui({type:'TASK',id:'bv-retry',action:'retry'});assert(response.ok,response.error);assert.match(requested[1],/cid=2&/);assert.equal(local.tasks[0].resolutionUrl,endpoint);assert.match(local.tasks[0].url,/fresh/);
+ }finally{globalThis.fetch=previous;}
+});

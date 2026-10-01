@@ -1,7 +1,7 @@
 export const manifest = {
   manifest_version:3,
   name:'__MSG_app_title__',
-  version:'0.3.0',
+  version:'0.3.1',
   default_locale:'en',
   description:'__MSG_app_desc__',
   minimum_chrome_version:'116',

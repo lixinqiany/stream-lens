@@ -3,6 +3,8 @@ import { defaults, httpUrl, originPattern, activeStates, clearableStates, runnin
 import { mergeEvidence, protocolFor } from '../../core/discovery/catalog';
 import {playerKey, selectedAssets} from '../../core/discovery/selection';
 import {biliEndpoint,biliPlayEndpoint,isBiliEndpoint,parseBiliPlayResponse} from '../../core/sites/bilibili';
+import {youtubeEndpoint,isYoutubeEndpoint,resolveYoutube} from '../../core/sites/youtube';
+import {douyinEndpoint,isDouyinEndpoint,resolveDouyin,douyinMobileAgent} from '../../core/sites/douyin';
 import { allowedFetch, PermissionError } from '../../core/hls/fetch';
 import {ResolutionCache} from '../../core/discovery/resolution';
 import { parseHls } from '../../core/hls/parser';
@@ -65,6 +67,17 @@ async function ensureBiliHeaders() {
   });
   headerQueue=operation.then(()=>{},()=>{});await operation;
 }
+
+async function ensureDouyinHeaders(){
+  if(!chrome.declarativeNetRequest)return;
+  const operation=headerQueue.then(async()=>{
+    const rule:chrome.declarativeNetRequest.Rule={id:1002,priority:1000,action:{type:chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,requestHeaders:[{header:'User-Agent',operation:chrome.declarativeNetRequest.HeaderOperation.SET,value:douyinMobileAgent}]},condition:{initiatorDomains:[chrome.runtime.id],regexFilter:'^https://www[.]iesdouyin[.]com/share/video/[0-9]+/',resourceTypes:[chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST]}};
+    const mediaRule:chrome.declarativeNetRequest.Rule={id:1003,priority:1000,action:{type:chrome.declarativeNetRequest.RuleActionType.MODIFY_HEADERS,requestHeaders:[{header:'Referer',operation:chrome.declarativeNetRequest.HeaderOperation.SET,value:'https://www.douyin.com/'}]},condition:{initiatorDomains:[chrome.runtime.id],requestDomains:['douyinvod.com','douyin.com','iesdouyin.com','bytecdn.cn','bytecdn.com','snssdk.com','amemv.com']}};
+    const rules=await chrome.declarativeNetRequest.getSessionRules();const existing=rules.find(r=>r.id===1002);
+    if(existing&&JSON.stringify(existing)===JSON.stringify(rule)&&JSON.stringify(rules.find(r=>r.id===1003))===JSON.stringify(mediaRule))return;
+    await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[1002,1003],addRules:[rule,mediaRule]});
+  });headerQueue=operation.then(()=>{},()=>{});await operation;
+}
 chrome.permissions.onRemoved.addListener(()=>{void syncHosts();});
 chrome.permissions.onAdded.addListener(()=>{void syncHosts();});
 chrome.tabs.onRemoved.addListener(tabId=>{void chrome.storage.session.remove('page:'+tabId);});
@@ -112,7 +125,7 @@ async function acceptEvidence(message:ContentMessage,sender:chrome.runtime.Messa
     const evidence:VideoEvidence={url,title:raw.title.slice(0,300),pageUrl:tab.url!,poster:httpUrl(raw.poster),width:Math.max(0,Number(raw.width)||0),height:Math.max(0,Number(raw.height)||0),duration:Number.isFinite(raw.duration)?raw.duration:undefined,
       playerId:typeof raw.playerId==='string'&&raw.playerId.length<=100?playerKey(sender.documentId,sender.frameId,raw.playerId):undefined,
       sourceKey:typeof raw.sourceKey==='string'&&raw.sourceKey.length<=16000?raw.sourceKey:undefined,format:raw.format==='DASH'?'DASH':undefined,
-      contentType:raw.format==='DASH'?'video/mp4':undefined,
+      contentType:raw.format==='DASH'||isDouyinEndpoint(tab.url!,url)?'video/mp4':undefined,
       playing:raw.playing===true,primary:sender.frameId===0&&raw.primary===true,protected:raw.protected===true,source:['player','network','script'].includes(raw.source)?raw.source:'player'};
     page.assets=mergeEvidence(page.assets,evidence);
   }
@@ -152,7 +165,11 @@ async function resolveAssetNow(tabId:number,assetId:string,identity:string):Prom
   if(asset.protected)throw new Error(t("this_video_is_protected_and_cannot_be_saved"));
   await patchResolution(tabId,assetId,identity,{resolutionState:'loading',resolutionError:undefined,resolutionOrigins:undefined});
   try{
-  if(asset.protocol==='DASH') {
+  if(isDouyinEndpoint(asset.pageUrl,asset.url)){
+    await ensureDouyinHeaders();const parsed=await resolveDouyin(asset.pageUrl);asset.variants=parsed.variants;asset.duration=parsed.duration;
+  } else if(asset.protocol==='DASH'&&isYoutubeEndpoint(asset.pageUrl,asset.url)){
+    const parsed=await resolveYoutube(asset.pageUrl);asset.variants=parsed.variants;asset.duration=parsed.duration;
+  } else if(asset.protocol==='DASH') {
     await ensureBiliHeaders();
     let endpoint=isBiliEndpoint(asset.pageUrl,asset.url)?asset.url:biliEndpoint(asset.pageUrl);if(!endpoint)throw new Error(t("dash_downloads_from_this_site_are_not_supported"));
     async function json(url:string){const fetched=await allowedFetch(url,{limit:5_000_000});return JSON.parse(new TextDecoder().decode(fetched.data));}
@@ -286,7 +303,7 @@ async function startTask(tabId:number,assetId:string,variantId?:string,name?:str
   const filename=safeFilename(name?.trim()||asset.title,localizeQuality(variant.label),extension);
   if(!destination&&(await getPreferences()).saveAs)return openSaveRequest({tabId,assetId,variantId:variant.id,name,filename,pageUrl:asset.pageUrl,expectedPlayer,createdAt:Date.now()});
   if(destination)await availableDestination(destination.id);
-  const task:DownloadRecord={id:crypto.randomUUID(),assetId,title:asset.title,filename:destination?.filename||filename,destinationId:destination?.id,pageUrl:asset.pageUrl,url:variant.url,protocol:asset.protocol,dash:variant.dash,resolutionUrl:asset.protocol==='DASH'&&isBiliEndpoint(asset.pageUrl,asset.url)?asset.url:undefined,quality:variant.label,state:'resolving',createdAt:Date.now(),updatedAt:Date.now(),bytes:0,segments:0,speed:0};
+  const task:DownloadRecord={id:crypto.randomUUID(),assetId,title:asset.title,filename:destination?.filename||filename,destinationId:destination?.id,pageUrl:asset.pageUrl,url:variant.url,protocol:asset.protocol,dash:variant.dash,resolutionUrl:(isBiliEndpoint(asset.pageUrl,asset.url)||isYoutubeEndpoint(asset.pageUrl,asset.url)||isDouyinEndpoint(asset.pageUrl,asset.url))?asset.url:undefined,quality:variant.label,state:'resolving',createdAt:Date.now(),updatedAt:Date.now(),bytes:0,segments:0,speed:0};
   await mutateTasks(current=>({tasks:[task,...current],value:undefined}));
   try {
     if(['HLS','DASH'].includes(asset.protocol)||task.destinationId){await ensureRunner();await tellRunner({target:'runner',type:'RUN',task,language:(await getPreferences()).language});}
@@ -326,22 +343,38 @@ async function taskCommand(id:string,action:Extract<UiCommand,{type:'TASK'}>['ac
     if(!await chrome.permissions.contains({origins:[originPattern(task.url)]}))throw new PermissionError([originPattern(task.url)]);
     let refreshed:Partial<DownloadRecord>={};
     if(task.protocol==='HLS'&&/410/.test(task.error||''))refreshed={url:await refreshHls(task)};
-    if(task.protocol==='DASH'&&biliEndpoint(task.pageUrl)){
+    if(task.protocol==='MP4'&&isDouyinEndpoint(task.pageUrl,task.resolutionUrl||'')){
+      await ensureDouyinHeaders();const parsed=await resolveDouyin(task.pageUrl);const variant=parsed.variants[0];
+      refreshed={url:variant.url,resolutionUrl:douyinEndpoint(task.pageUrl)};
+      if(!await chrome.permissions.contains({origins:[originPattern(variant.url)]}))throw new PermissionError([originPattern(variant.url)]);
+    } else if(task.protocol==='DASH'&&youtubeEndpoint(task.pageUrl)){
+      const parsed=await resolveYoutube(task.pageUrl);const variant=parsed.variants.find(v=>v.label===task.quality);
+      if(!variant)throw new Error(t('your_account_no_longer_offers_select_an_available',[task.quality]));
+      refreshed={url:variant.url,dash:variant.dash,resolutionUrl:youtubeEndpoint(task.pageUrl)};
+      const origins=[originPattern(variant.url),originPattern(variant.dash!.audio.url)];
+      if(!await chrome.permissions.contains({origins}))throw new PermissionError(origins);
+    } else if(task.protocol==='DASH'&&biliEndpoint(task.pageUrl)){
       await ensureBiliHeaders();
-      const endpoint=task.resolutionUrl&&isBiliEndpoint(task.pageUrl,task.resolutionUrl)?task.resolutionUrl:biliEndpoint(task.pageUrl)!;
+      let endpoint=task.resolutionUrl&&isBiliEndpoint(task.pageUrl,task.resolutionUrl)?task.resolutionUrl:biliEndpoint(task.pageUrl)!;
+      if(endpoint.includes('/x/web-interface/view')){
+        const view=JSON.parse(new TextDecoder().decode((await allowedFetch(endpoint,{limit:5_000_000})).data));
+        const p=Number(new URL(task.pageUrl).searchParams.get('p')||1),cid=view.data?.pages?.[p-1]?.cid;
+        if(view.code!==0||!Number.isSafeInteger(cid)||cid<=0)throw new Error(t('invalid_episode_information'));
+        endpoint=biliPlayEndpoint(view.data.bvid,cid);
+      }
       if(endpoint.includes('/pgc/view/web/season')||endpoint.includes('/x/web-interface/view'))throw new Error(t("return_to_the_source_page_and_select_the"));
       const data=await allowedFetch(endpoint,{limit:5_000_000});
       const parsed=parseBiliPlayResponse(JSON.parse(new TextDecoder().decode(data.data)));
       const variant=parsed.variants.find(v=>localizeQuality(v.label)===localizeQuality(task.quality));
       if(!variant)throw new Error(t("your_account_no_longer_offers_select_an_available",[task.quality]));
-      refreshed={url:variant.url,dash:variant.dash,resolutionUrl:endpoint};
+      refreshed={url:variant.url,dash:variant.dash,resolutionUrl:biliEndpoint(task.pageUrl)?.includes('/x/web-interface/view')?biliEndpoint(task.pageUrl):endpoint};
       if(!await chrome.permissions.contains({origins:[originPattern(variant.url),originPattern(variant.dash!.audio.url)]}))throw new PermissionError([originPattern(variant.url),originPattern(variant.dash!.audio.url)]);
     }
     const reset:DownloadRecord={...task,...refreshed,destinationId:destination?.id,filename:destination?.filename||task.filename,state:'resolving',bytes:0,segments:0,totalSegments:undefined,totalBytes:undefined,downloadId:undefined,error:undefined,neededOrigins:undefined,speed:0,updatedAt:Date.now()};
     await patchTask(id,reset);
     if(task.destinationId&&task.destinationId!==reset.destinationId)await forgetDestination(task.destinationId).catch(()=>{});
     if(['HLS','DASH'].includes(task.protocol)||reset.destinationId){try{await ensureRunner();await tellRunner({target:'runner',type:'RUN',task:reset,language:(await getPreferences()).language});}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
-    else{try{const downloadId=await chrome.downloads.download({url:task.url,filename:task.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(id,{downloadId,state:'downloading'});await updateDownload(downloadId);}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
+    else{try{const downloadId=await chrome.downloads.download({url:reset.url,filename:reset.filename,saveAs:false,conflictAction:'uniquify'});await patchTask(id,{downloadId,state:'downloading'});await updateDownload(downloadId);}catch(error){await patchTask(id,{state:'failed',error:errorText(error)});if(destination)return {id,duplicate:false,failed:true};throw error;}}
     return;
   }
   if(!activeStates.includes(task.state))return;
@@ -409,7 +442,7 @@ async function handlePlayer(command:PlayerCommand,sender:chrome.runtime.MessageS
   if(!page||page.pageUrl!==tab.url||page.selection?.playerId!==binding)throw new Error(t("selection_changed_click_the_video_you_want_to"));
   const candidates=selectedAssets(page.assets,page.selection);
   if(candidates.length===0)throw new Error(t("no_url_is_linked_to_this_video_yet"));
-  const endpoint=biliEndpoint(page.pageUrl);
+  const endpoint=biliEndpoint(page.pageUrl)||youtubeEndpoint(page.pageUrl)||douyinEndpoint(page.pageUrl);
   const asset=candidates.find(a=>a.url===endpoint)||candidates.find(a=>a.protocol==='HLS'||a.protocol==='DASH')||candidates[0];
   if(asset.protocol!=='DASH'&&candidates.length>1)throw new Error(t("this_player_has_multiple_resources_choose_one_in"));
   if(command.type==='PLAYER_RESOLVE')return {asset:await resolveAsset(tabId,asset.id),preferences:await getPreferences()} satisfies PlayerResolveResult;

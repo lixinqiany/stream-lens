@@ -61,14 +61,18 @@
 | HLS VOD · TS H.264 / AAC | MP4 remuxing without re-encoding |
 | HLS VOD · fMP4 H.264 / AAC | MP4, with consistent initialization data |
 | HLS AES-128 identity | Standard AES-CBC segment decryption |
+| YouTube watch / Shorts · public H.264 + AAC indexed streams | Video and audio merged into MP4 |
+| Douyin video / selected work on the featured page | Complete MP4 supplied by the official share page |
 | Bilibili BV / bangumi `ep`, `ss` · H.264 + AAC DASH | Video and audio merged into MP4 |
 
-**Limits:** Two concurrent streaming tasks, up to 8 GB per file. Bilibili quality depends on the playback access available to your account and region.
+**Download validation:** Real HTTP requests and the production runner downloaded a 19-second YouTube video, a 3:32 ordinary Bilibili upload and a 21:18 Douyin video. All three files contain audio and video and passed full decoding. An additional YouTube video was rejected by its CDN partway through and is not counted as successful. No browser was operated; native Chrome installation and saving still need device validation. See [platform tests](docs/platform-support.md).
+
+**Limits:** Two concurrent streaming tasks, up to 8 GB per file. Quality depends on normal playback access. YouTube requires directly available indexed streams; some videos are rejected by the CDN. Douyin preserves the official playback file, which may contain a watermark.
 
 <details>
 <summary><strong>Compatibility and recovery</strong></summary>
 
-- Live streams, DASH on other sites, separate HLS audio, timeline changes and DRM / SAMPLE-AES are not supported. Preview-only content is not offered as a full download.
+- Live streams, DASH on sites without an adapter, separate HLS audio, timeline changes and DRM / SAMPLE-AES are not supported. Preview-only content is not offered as a full download.
 - Worker-based transmuxing, closed Shadow DOM, custom media elements and shared ad players may prevent source detection.
 - Closing the browser interrupts streaming tasks; retries restart from the beginning. Resuming direct downloads to the default folder depends on the server. Direct downloads to a preselected location restart when resumed.
 - Automated checks do not replace real Chrome validation of native save dialogs, cross-document file access or website compatibility. See the [validation log](docs/validation.md) (Chinese).
@@ -96,7 +100,7 @@ Load `dist-extension` in Chrome. After changes, rebuild, reload the extension, a
 
 | Command | Purpose |
 | --- | --- |
-| `npm test` | 93 tests for media parsing, background logic and download runners |
+| `npm test` | Regression tests for parsing, background logic and download runners |
 | `npm run test:ui` | Component, player and save-recovery checks in jsdom; no browser is launched |
 | `npm run dev` | Early design prototype with demonstration data |
 

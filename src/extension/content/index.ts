@@ -2,6 +2,8 @@ import {t,watchLanguage,currentLocale,localizeText,localizeQuality} from '../../
 import {httpUrl, type MediaAsset, type PlayerSelection, type VideoEvidence} from '../../core/model';
 import {protocolFor} from '../../core/discovery/catalog';
 import {biliEndpoint} from '../../core/sites/bilibili';
+import {youtubeEndpoint,youtubeId} from '../../core/sites/youtube';
+import {douyinEndpoint,douyinId} from '../../core/sites/douyin';
 import type {PlayerCommand, PlayerResolveResult, Response, StartResult} from '../../platform/messages';
 
 const state=globalThis as typeof globalThis & {__streamLens?:boolean};
@@ -20,7 +22,7 @@ if(!state.__streamLens) {
   const id=(video:Element)=>{let value=ids.get(video);if(!value){value=crypto.randomUUID();ids.set(video,value);}return value;};
   const source=(video:HTMLVideoElement)=>video.currentSrc||video.src||String((video as HTMLVideoElement).srcObject?'src-object':'unloaded');
   const episode=(video:HTMLVideoElement)=>{const context=biliEpisodes.get(video);return context&&context.source===source(video)&&location.pathname===('/bangumi/play/ss'+context.seasonId)?context.episodeId:undefined;};
-  const key=(video:HTMLVideoElement)=>source(video)+(episode(video)?'|bili-ep:'+episode(video):'');
+  const key=(video:HTMLVideoElement)=>source(video)+(episode(video)?'|bili-ep:'+episode(video):'')+(youtubeId(location.href)?'|yt:'+youtubeId(location.href)+(video.closest('.ad-showing,.ad-interrupting')?'|ad':''):'')+(douyinId(location.href)?'|dy:'+douyinId(location.href)+(douyinMatches(video)?'':'|unbound'):'');
   const title=()=>(document.querySelector('h1')?.textContent||document.title||t("page_video")).trim().slice(0,300);
   function selection():PlayerSelection|undefined {return target?{playerId:id(target),sourceKey:key(target),title:title(),playing:!target.paused&&!target.ended,selectedAt}:undefined;}
   function info(video?:HTMLVideoElement):Omit<VideoEvidence,'url'|'source'> {
@@ -28,11 +30,26 @@ if(!state.__streamLens) {
       duration:video&&Number.isFinite(video.duration)?video.duration:undefined,playing:!!video&&!video.paused&&!video.ended,primary:!!video&&video===target,
       protected:!!video&&(!!video.mediaKeys||protectedPlayers.has(video)),playerId:video?id(video):undefined,sourceKey:video?key(video):undefined};
   }
+  function douyinMatches(video:HTMLVideoElement){
+    if(video.closest('[data-ad],.ad-showing,.ad-interrupting'))return false;
+    const work=douyinId(location.href);
+    const card=video.closest('[data-aweme-id],[data-e2e="feed-active-video"]');
+    const cardId=card?.getAttribute('data-aweme-id');if(cardId)return cardId===work;
+    const linked=card?.querySelector<HTMLAnchorElement>('a[href*="/video/"]');
+    if(linked&&douyinId(linked.href))return douyinId(linked.href)===work;
+    // Do not bind the route to an arbitrary video in a multi-player feed.
+    const visible=media().filter(v=>{const r=v.getBoundingClientRect();return r.width>=100&&r.height>=60&&r.bottom>0&&r.top<innerHeight;});
+    return visible.length===1&&visible[0]===video;
+  }
   function inspect() {
     if(location.href!==lastLocation){resolutionAttempt='';resolutionFlight=undefined;pendingPermission=undefined;lastLocation=location.href;target=undefined;selectedAt=0;resolved=undefined;popoverOpen=false;previous='';sourceHints.clear();scriptBindings.clear();}
     const videos=media();
     if(target&&!target.isConnected){target=undefined;resolved=undefined;popoverOpen=false;}
     const evidence:VideoEvidence[]=[];
+    const douyin=douyinEndpoint(location.href);
+    if(target&&douyin&&douyinMatches(target))evidence.push({...info(target),url:douyin,source:'player',contentType:'video/mp4'});
+    const youtube=youtubeEndpoint(location.href);
+    if(target&&youtube&&target.closest('#movie_player,#shorts-player')&&!target.closest('.ad-showing,.ad-interrupting'))evidence.push({...info(target),url:youtube,source:'player',format:'DASH',contentType:'video/mp4'});
     const bili=biliEndpoint(location.href,target&&episode(target));
     if(target&&bili&&target.closest('.bpx-player-container,.bpx-player-video-wrap,.bilibili-player-video-wrap,#bilibili-player')){
       window.postMessage({channel,type:'bili-player-query',playerId:id(target),source:source(target)},location.origin);
@@ -111,7 +128,7 @@ if(!state.__streamLens) {
   document.addEventListener('keydown',event=>{if(!event.isTrusted||![' ','Enter','ArrowLeft','ArrowRight','k','K'].includes(event.key)||event.composedPath().includes(host))return;const video=videoFor(event);if(video)choose(video);},true);
   for(const event of ['play','pause','loadedmetadata','durationchange','emptied'])document.addEventListener(event,schedule,true);
   document.addEventListener('encrypted',event=>{if(event.target instanceof Element)protectedPlayers.add(event.target);schedule();},true);
-  new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src','poster']});
+  new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src','poster','class']});
   window.addEventListener('message',event=>{
     const data=event.data;
     if(event.source===window&&data?.channel===channel&&data.type==='bili-player-context'){

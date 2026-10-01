@@ -1,5 +1,6 @@
 // Shared strings for extension pages, content controls and engine errors.
 export const messages = {
+  "site_playback_unavailable": {"zh":"无法读取可下载的播放信息，请确认视频在原站可正常播放", "en":"Downloadable playback information is unavailable. Check that the video plays on its source site."},
   "mp4_structure_is_truncated": {
     "zh": "MP4 结构被截断",
     "en": "MP4 structure is truncated"
