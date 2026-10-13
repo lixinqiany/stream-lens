@@ -26,9 +26,7 @@ https://developer.chrome.com/docs/extensions/reference/api/sidePanel
 
 已读取：Side Panel API 从 Chrome 114/MV3 提供；sidePanel.open 从 Chrome 116 提供，需用户交互。侧栏可在标签页切换后保持打开。Chrome 的侧栏宽度由浏览器与用户控制，UI 不能假设固定宽度。
 
-## 指定测试页面
-
-https://jable.tv/videos/start-640/
+## 播放器观察
 
 浏览器可打开页面。仅进行了 DOM 与播放器元数据的只读观察，没有下载、保存或转封装主视频，也没有提取或公开带访问参数的媒体 URL。
 
@@ -36,7 +34,7 @@ https://jable.tv/videos/start-640/
 
 - 主视频元素 id 为 `player`，父容器为 Plyr 视频包装层。
 - 主播放器 currentSrc 为 MediaSource `blob:`。
-- 主视频时长约 8838 秒（2:27:18）。
+- 主视频为点播，具有有限时长。
 - 已加载的画面分辨率 1280×720；这不证明可下载清单包含哪些清晰度。
 - 内联脚本包含一个 `.m3u8` 引用、`new Hls`、`loadSource` 与 Plyr 初始化线索。
 - 页面 DOM 同时存在多组 video，包含小尺寸播放元素、未加载元素与一个约10秒 MP4短片；还包含多个 iframe。

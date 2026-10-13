@@ -26,7 +26,7 @@ Without a chosen destination: HLS / DASH → OPFS / Blob → Chrome downloads
 | --- | --- |
 | core/model | 媒体、规格、任务、设置和进度模型 |
 | core/discovery/catalog | 精确 URL 去重、证据融合、主播放器排序和广告提示 |
-| core/sites | YouTube / Douyin / Bilibili 的规范来源、公开播放数据与轨道选择 |
+| core/sites | 已适配播放器的规范来源、播放数据与轨道选择 |
 | core/hls/parser | HLS 清单、范围、初始化、密钥、IV 与可支持性线索 |
 | core/hls/fetch | 授权请求、超时、重试调用所需的范围与字节上限 |
 | core/hls/transmux、mp4 | TS 增量转封装、初始化与轨道校验 |
@@ -53,7 +53,7 @@ HLS/parser、媒体模型与目录归并可以独立测试。Chrome 请求和存
 
 ## 权限与边界
 
-基础权限为 activeTab / tabs / scripting / storage / downloads / sidePanel / webRequest / offscreen / alarms。HTTP/HTTPS host 权限随安装声明，用于页面识别和 CDN 访问；Chrome 限制站点访问时提供恢复入口。来源头规则使用 declarativeNetRequestWithHostAccess，仅作用于扩展发起的对应站点请求；抖音分享页请求使用移动端 User-Agent，媒体来源头为官网。无 cookies、debugger 或 nativeMessaging 权限。
+基础权限为 activeTab / tabs / scripting / storage / downloads / sidePanel / webRequest / offscreen / alarms。HTTP/HTTPS host 权限随安装声明，用于页面识别和 CDN 访问；Chrome 限制站点访问时提供恢复入口。来源头规则使用 declarativeNetRequestWithHostAccess，仅作用于扩展发起的对应站点请求；部分已适配页面使用移动端 User-Agent，媒体来源头与来源页面匹配。无 cookies、debugger 或 nativeMessaging 权限。
 
 响应体消费前核对重定向 CDN 的权限；范围请求核对状态、Content-Range 与长度。后台验证扩展 UI、内容脚本和 offscreen 的消息来源。页面标题文本渲染，脚本只读字面 URL、不执行。资源链接保留签名查询参数，不删 query 去重，也不在诊断中导出。
 
@@ -69,15 +69,15 @@ HLS/parser、媒体模型与目录归并可以独立测试。Chrome 请求和存
 
 ## 平台适配
 
-规范来源与用户选中的播放器及当次 sourceKey 绑定，优先于独立音轨、视频轨道和预加载资源。YouTube watch / Shorts 统一为确切 video ID，广告 class 改变时解绑正片；抖音 modal_id / video 路径绑定确切作品 ID，多播放器无法确认时不关联分享页。SPA 导航清理选择与解析状态。
+规范来源与用户选中的播放器及当次 sourceKey 绑定，优先于独立音轨、视频轨道和预加载资源。页面路由与当前视频标识必须一致，广告状态改变时解绑正片；多个播放器无法确认归属时不关联页面来源。SPA 导航清理选择与解析状态。
 
-YouTube 只读页面字面 JSON，再按需请求公开播放器响应，筛选含 init/index 字节范围的 H.264 / AAC。不执行签名脚本或处理验证码、DRM；正常播放接口拒绝、CDN 拒绝均失败。抖音建立官方分享页正常会话，再读取渲染数据中 exact aweme_id 的完整 MP4，保留原播放地址。重试重新解析签名；B 站普通 BV 重试使用原 URL 的 p 分集，YouTube 保留原画质。
+适配器读取页面字面 JSON 与正常播放响应，筛选含 init/index 字节范围的 H.264 / AAC，或读取与当前视频标识一致的原始 MP4 地址。不执行签名脚本或处理验证码、DRM；正常播放接口拒绝、CDN 拒绝均失败。重试重新解析签名，并保留已选分集和画质。
 
 ## 自动选择主播放器（0.3.2）
 
 顶层页面中已就绪、可见的明确主播放器自动绑定（已适配站点使用主容器）；通用页面只接受单个正在播放或面积显著更大的播放器。广告、不可见和未就绪元素排除，多个相近大小的视频保留用户选择。自动绑定只解析元数据，不启动下载。
 
-手动点击与侧栏切换均标记 manual，后续自动播放不能覆盖；暂停保留选择，SPA 导航重置并重新识别。B 站规范页面接口包含于 sourceKey，防止元素和 blob 地址复用时旧页面结果串入。
+手动点击与侧栏切换均标记 manual，后续自动播放不能覆盖；暂停保留选择，SPA 导航重置并重新识别。已适配页面的规范来源包含于 sourceKey，防止元素和 blob 地址复用时旧页面结果串入。
 
 侧栏的其他视频按实际 playerId 和最新 sourceKey 合并，只展示绑定到播放器的资源；未绑定的网络音视频轨道不生成视频行。切换发往原 documentId / frameId，由内容脚本复核当前 sourceKey 后选择，不直接下载轨道。
 

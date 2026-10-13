@@ -55,20 +55,18 @@
 
 ## Supported media
 
-| Source / format | Output |
+| Media format / playback | Output |
 | --- | --- |
 | Direct MP4 / WebM | Original file |
 | HLS VOD · TS H.264 / AAC | MP4 remuxing without re-encoding |
 | HLS VOD · fMP4 H.264 / AAC | MP4, with consistent initialization data |
 | HLS AES-128 identity | Standard AES-CBC segment decryption |
-| yfsp.tv · normally playable HLS VOD | Track Hls.js Worker playback provenance and remux to MP4 |
-| YouTube watch / Shorts · public H.264 + AAC indexed streams | Video and audio merged into MP4 |
-| Douyin video / selected work on the featured page | Complete MP4 supplied by the official share page |
-| Bilibili BV / bangumi `ep`, `ss` · H.264 + AAC DASH | Video and audio merged into MP4 |
+| HLS VOD · supported Worker players | Track playback provenance and remux to MP4 |
+| Adapted players · H.264 + AAC DASH | Video and audio merged into MP4 |
 
-**Download validation:** v0.3.4 saved the complete yfsp.tv episode 美人余 01 (47:40, with video and audio) in native Chrome; see [platform tests](docs/platform-support.md). Earlier real HTTP requests and the production runner downloaded a 19-second YouTube video, a 3:32 ordinary Bilibili upload and a 21:18 Douyin video. All three files contain audio and video and passed full decoding. An additional YouTube video was rejected by its CDN partway through and is not counted as successful. The earlier three-platform tests did not operate a browser; their native Chrome saving still needs platform-specific device validation. See [platform tests](docs/platform-support.md).
+**Validation:** Automated tests cover format parsing, audio/video merging, permission checks, task recovery and saving. See [media compatibility](docs/platform-support.md) and the [validation log](docs/validation.md). Format support does not guarantee downloads from every webpage.
 
-**Limits:** Two concurrent streaming tasks, up to 8 GB per file. Quality depends on normal playback access. YouTube requires directly available indexed streams; some videos are rejected by the CDN. Douyin preserves the official playback file, which may contain a watermark.
+**Limits:** Two concurrent streaming tasks, up to 8 GB per file. Quality depends on normal playback access, media codecs and server responses. Saving the original file preserves any existing watermark.
 
 <details>
 <summary><strong>Compatibility and recovery</strong></summary>
