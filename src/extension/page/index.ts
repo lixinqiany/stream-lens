@@ -2,11 +2,13 @@
 // the isolated content script; no Chrome API or download command is exposed here.
 import {httpUrl} from '../../core/model';
 import {protocolFor} from '../../core/discovery/catalog';
+import {observeHls} from './hls';
 
 const state=globalThis as typeof globalThis & {__streamLensProbe?:boolean};
 if(!state.__streamLensProbe) {
   state.__streamLensProbe=true;
   const channel='stream-lens-media-v1';
+  const queryHls=observeHls((blob,urls)=>window.postMessage({channel,type:'sources',blob,urls},location.origin));
   const buffers=new WeakMap<SourceBuffer,MediaSource>();
   const blobs=new Map<string,MediaSource>();
   const sources=new WeakMap<MediaSource,Set<string>>();
@@ -131,6 +133,7 @@ if(!state.__streamLensProbe) {
       return;
     }
     if(event.data.type!=='query'||typeof event.data.blob!=='string')return;
+    queryHls(event.data.blob);
     const media=blobs.get(event.data.blob);if(media)emit(event.data.blob,media);
   });
 }

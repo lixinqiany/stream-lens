@@ -1,5 +1,18 @@
 # Platform support / 平台支持
 
+## v0.3.4 · yfsp.tv / 爱壹帆
+
+验证日期：2026-10-13。实际操作用户已安装拾影的 Google Chrome，重新加载 v0.3.4 并刷新 [《美人余》01](https://www.yfsp.tv/play/uHcU4Clu390)。侧栏自动识别正片 47:40，播放器内快捷入口可正常选择清晰度；此前显示的一秒条目是网站的 `assets/javascript/empty2.mp4` 占位文件，现已过滤。通过实际侧栏启动正式 HLS 执行器，Chrome 默认下载目录完成 MP4 保存，任务显示 100%。
+
+- 视频：H.264，864×362；音频：HE-AAC，48 kHz，双声道。原站菜单标注 576P，实际流的像素尺寸为 864×362，扩展按实际视频高度显示 362p。
+- 文件：135,267,143 字节；容器时长 00:47:40.07。FFmpeg 使用原生 90 kHz 视频时基对完整音视频解码，退出码 0、错误输出为空。
+- 额外打开第 02 集，侧栏正确显示独立的标题、46:07 时长及 362p 来源；未对第 02 集执行完整下载。
+- 来源追踪：公开 Hls.js 的 `media` / `url` 与加载、附加、分离事件绑定真实视频元素；支持 Worker 转封装，不依赖 TS 与 MP4 字节指纹匹配，不将无关联的广告或网络清单绑定到正片。
+- 切换播放清单、分离播放器或换集会使旧关联失效。离线测试涵盖 Hls.js 异步加载、两种调用顺序、签名地址保留、其他播放器隔离、占位视频过滤、重新检测和同 Blob 换集。
+- 本次实机验证覆盖正常可播放的该集 HLS 点播及默认目录保存；其他作品、预选保存位置、权限受限内容与 DRM 不能由这一样本作全站保证。
+
+v0.3.4 was tested in the user’s installed native Chrome extension. The complete normally playable HLS episode above was saved through the production runner and Chrome downloads. Worker playback provenance is linked through the public Hls.js media/url pair; the one-second placeholder is excluded. Actual dimensions are 864×362 despite the site’s 576P label. Full audio/video decoding with the original 90 kHz video timebase passed with exit code 0 and no errors. Episode 02 was also correctly identified as a separate 46:07 source, without a full download. Other works, preselected file handles, restricted content and DRM are outside this native test’s scope.
+
 v0.3.1 adds YouTube and Douyin adapters and verifies ordinary Bilibili uploads. These are real network and media-engine tests. Chrome APIs and file handles use test adapters; media requests, MP4 processing, incremental disk writes and full FFmpeg decoding are real. No browser was operated. Native Chrome UI, cookies, DNR headers and file permissions have not been verified on a device.
 
 v0.3.1 新增 YouTube、抖音适配，并确认 B 站普通投稿的完整下载。测试使用真实 HTTP 请求、正式执行器、磁盘增量写入和 FFmpeg 全文件解码；Chrome API、文件句柄通过测试适配器替代。未操控浏览器，原生界面、Cookie、DNR 请求头与保存权限仍需 Chrome 实机验证。

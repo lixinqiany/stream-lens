@@ -5,6 +5,7 @@ import {protocolFor} from '../../core/discovery/catalog';
 import {biliEndpoint} from '../../core/sites/bilibili';
 import {youtubeEndpoint,youtubeId} from '../../core/sites/youtube';
 import {douyinEndpoint,douyinId} from '../../core/sites/douyin';
+import {isYfspPlaceholder} from '../../core/sites/yfsp';
 import type {PlayerCommand, PlayerResolveResult, Response, StartResult} from '../../platform/messages';
 
 const state=globalThis as typeof globalThis & {__streamLens?:boolean};
@@ -20,12 +21,13 @@ if(!state.__streamLens) {
   let resolved:PlayerResolveResult|undefined,resolvedSource='',busy=false,popoverOpen=false,selectPending=false;
   let resolutionAttempt='',resolutionFlight:{video:HTMLVideoElement;source:string;promise:Promise<void>}|undefined;
   let pendingPermission:{command:PlayerCommand;video:HTMLVideoElement;sourceKey:string}|undefined;
-  const media=()=>[...document.querySelectorAll<HTMLVideoElement>('video,bwp-video')];
+  const media=()=>[...document.querySelectorAll<HTMLVideoElement>('video,bwp-video')].filter(v=>!isYfspPlaceholder(v.currentSrc||v.src));
   const id=(video:Element)=>{let value=ids.get(video);if(!value){value=crypto.randomUUID();ids.set(video,value);}return value;};
   const source=(video:HTMLVideoElement)=>video.currentSrc||video.src||String((video as HTMLVideoElement).srcObject?'src-object':'unloaded');
   const isAd=(video:HTMLVideoElement)=>!!video.closest('[data-ad],.ad-showing,.ad-interrupting,.bpx-player-ad-wrap,.bilibili-player-video-ad');
   const episode=(video:HTMLVideoElement)=>{const context=biliEpisodes.get(video);return context&&context.source===source(video)&&location.pathname===('/bangumi/play/ss'+context.seasonId)?context.episodeId:undefined;};
-  const key=(video:HTMLVideoElement)=>source(video)+(biliEndpoint(location.href)?'|bili:'+biliEndpoint(location.href):'')+(episode(video)?'|bili-ep:'+episode(video):'')+(youtubeId(location.href)?'|yt:'+youtubeId(location.href):'')+(douyinId(location.href)?'|dy:'+douyinId(location.href)+(douyinMatches(video)?'':'|unbound'):'')+(isAd(video)?'|ad':'');
+  const hlsKey=(video:HTMLVideoElement)=>{const urls=sourceHints.get(source(video))?.urls.filter(url=>protocolFor(url)==='HLS');return urls?.length?'|hls:'+urls.join('|'):'';};
+  const key=(video:HTMLVideoElement)=>source(video)+(biliEndpoint(location.href)?'|bili:'+biliEndpoint(location.href):'')+(episode(video)?'|bili-ep:'+episode(video):'')+(youtubeId(location.href)?'|yt:'+youtubeId(location.href):'')+(douyinId(location.href)?'|dy:'+douyinId(location.href)+(douyinMatches(video)?'':'|unbound'):'')+(isAd(video)?'|ad':'')+hlsKey(video);
   const title=()=>(document.querySelector('h1')?.textContent||document.title||t("page_video")).trim().slice(0,300);
   function selection():PlayerSelection|undefined {return target?{playerId:id(target),sourceKey:key(target),title:title(),playing:!target.paused&&!target.ended,selectedAt,mode:selectionMode}:undefined;}
   function info(video?:HTMLVideoElement):Omit<VideoEvidence,'url'|'source'> {
@@ -154,7 +156,7 @@ if(!state.__streamLens) {
     }
     if(event.source!==window||data?.channel!==channel||data.type!=='sources'||typeof data.blob!=='string'||!data.blob.startsWith('blob:')||!Array.isArray(data.urls))return;
     const urls=data.urls.slice(0,30).map(httpUrl).filter((u: string|undefined):u is string=>!!u);
-    if(!urls.length)return;
+    if(!urls.length){sourceHints.delete(data.blob);schedule();return;}
     sourceHints.set(data.blob,{urls,format:data.format==='DASH'?'DASH':undefined});
     while(sourceHints.size>100)sourceHints.delete(sourceHints.keys().next().value!);
     schedule();

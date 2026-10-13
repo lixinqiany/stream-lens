@@ -1,4 +1,5 @@
 import {t} from '../../i18n';
+import {isYfspPlaceholder} from '../sites/yfsp';
 import { httpUrl, type MediaAsset, type VideoEvidence, type Protocol } from '../model.ts';
 export function protocolFor(url: string, contentType = ''): Protocol | undefined {
   const path = new URL(url).pathname.toLowerCase();
@@ -15,7 +16,7 @@ export function assetId(url: string): string {
 }
 export function mergeEvidence(assets: MediaAsset[], evidence: VideoEvidence): MediaAsset[] {
   const url = httpUrl(evidence.url);
-  if (!url) return assets;
+  if (!url || isYfspPlaceholder(url)) return assets;
   const protocol = protocolFor(url, evidence.contentType);
   if (!protocol) return assets;
   const existing = assets.find(a => a.url === url);

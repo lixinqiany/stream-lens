@@ -1,6 +1,12 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mergeEvidence,protocolFor} from '../discovery/catalog';import {safeFilename,taskProgress,httpUrl,originPattern,type VideoEvidence,type DownloadRecord} from '../model';
 const evidence:VideoEvidence={title:'主视频',pageUrl:'https://page.example/',width:1280,height:720,duration:8838,playing:false,primary:true,protected:false,source:'player',url:'https://cdn.example/main.m3u8?sig=a'};
+test('yfsp placeholder is excluded for network and player evidence without hiding real short videos',()=>{
+ for(const source of ['network','player','script'] as const)assert.equal(mergeEvidence([],{...evidence,source,url:'https://www.yfsp.tv/assets/javascript/empty2.mp4?cache=1'}).length,0);
+ assert.equal(mergeEvidence([],{...evidence,url:'https://www.yfsp.tv/videos/short.mp4',duration:1}).length,1);
+ assert.equal(mergeEvidence([],{...evidence,url:'https://other.example/assets/javascript/empty2.mp4'}).length,1);
+ assert.equal(mergeEvidence([],{...evidence,url:'https://yfsp.tv.evil.example/assets/javascript/empty2.mp4'}).length,1);
+});
 test('main player outranks playing ad, repeated network evidence preserves ad classification',()=>{
  let assets=mergeEvidence([],evidence);assets=mergeEvidence(assets,{...evidence,url:'https://cdn.example/ad.mp4',title:'ad',primary:false,playing:true,width:320,height:180,duration:15});
  assets=mergeEvidence(assets,{...evidence,url:'https://cdn.example/ad.mp4',title:'page title',primary:false,playing:false,width:0,height:0,duration:undefined,source:'network'});

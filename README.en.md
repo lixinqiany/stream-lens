@@ -61,11 +61,12 @@
 | HLS VOD · TS H.264 / AAC | MP4 remuxing without re-encoding |
 | HLS VOD · fMP4 H.264 / AAC | MP4, with consistent initialization data |
 | HLS AES-128 identity | Standard AES-CBC segment decryption |
+| yfsp.tv · normally playable HLS VOD | Track Hls.js Worker playback provenance and remux to MP4 |
 | YouTube watch / Shorts · public H.264 + AAC indexed streams | Video and audio merged into MP4 |
 | Douyin video / selected work on the featured page | Complete MP4 supplied by the official share page |
 | Bilibili BV / bangumi `ep`, `ss` · H.264 + AAC DASH | Video and audio merged into MP4 |
 
-**Download validation:** Real HTTP requests and the production runner downloaded a 19-second YouTube video, a 3:32 ordinary Bilibili upload and a 21:18 Douyin video. All three files contain audio and video and passed full decoding. An additional YouTube video was rejected by its CDN partway through and is not counted as successful. No browser was operated; native Chrome installation and saving still need device validation. See [platform tests](docs/platform-support.md).
+**Download validation:** v0.3.4 saved the complete yfsp.tv episode 美人余 01 (47:40, with video and audio) in native Chrome; see [platform tests](docs/platform-support.md). Earlier real HTTP requests and the production runner downloaded a 19-second YouTube video, a 3:32 ordinary Bilibili upload and a 21:18 Douyin video. All three files contain audio and video and passed full decoding. An additional YouTube video was rejected by its CDN partway through and is not counted as successful. The earlier three-platform tests did not operate a browser; their native Chrome saving still needs platform-specific device validation. See [platform tests](docs/platform-support.md).
 
 **Limits:** Two concurrent streaming tasks, up to 8 GB per file. Quality depends on normal playback access. YouTube requires directly available indexed streams; some videos are rejected by the CDN. Douyin preserves the official playback file, which may contain a watermark.
 
@@ -73,7 +74,7 @@
 <summary><strong>Compatibility and recovery</strong></summary>
 
 - Live streams, DASH on sites without an adapter, separate HLS audio, timeline changes and DRM / SAMPLE-AES are not supported. Preview-only content is not offered as a full download.
-- Worker-based transmuxing, closed Shadow DOM, custom media elements and shared ad players may prevent source detection.
+- Public Hls.js Worker playback is tracked. Other Worker players, closed Shadow DOM, custom media elements and shared ad players may prevent source detection.
 - Pause or resume from the upper-right corner of a downloading task. HLS / DASH retain downloaded segments; closing the sidebar does not interrupt the task.
 - Cancellation stops the download, discards unfinished data and removes its record automatically. Failed cleanup can be retried. Existing contents of a preselected file are preserved; a newly created picker file may remain empty (0 bytes).
 - Closing the browser interrupts streaming tasks; retries restart from the beginning. Resuming direct downloads to the default folder depends on the server. Direct downloads to a preselected location restart when resumed.
