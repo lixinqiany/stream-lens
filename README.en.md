@@ -86,6 +86,14 @@ Videos are processed locally. History, preferences and temporary files stay on y
 
 HTTP/HTTPS permissions are declared at installation to detect players and access video CDNs. Adjust site access in Chrome's extension settings. Download only content you have permission to save. Report security issues through [private vulnerability reporting](https://github.com/lixinqiany/stream-lens/security/advisories/new).
 
+## Copyright & disclaimer
+
+Save content only when you hold the relevant rights, have the necessary permission, or applicable law permits it. Availability for online playback or technical access does not establish permission to copy, redistribute or commercially use the content. The project's MIT license applies to the software and grants no rights to third-party media.
+
+The project does not operate media hosting, content-sharing or online download-on-behalf services. It does not support bypassing DRM, payment restrictions or access controls, and does not encourage unauthorized copying or redistribution. Users must assess content permissions, applicable law and relevant service terms, and are responsible for their own use.
+
+The software is provided "as is" under the MIT license. Warranty disclaimers and liability limitations are governed by [LICENSE](LICENSE) and applicable law. This notice does not exclude liability that cannot legally be excluded or guarantee that a use is lawful. See the [usage and copyright notice](DISCLAIMER.md#english) for details and rights-related feedback.
+
 ## Development
 
 **Node.js 24.15+**. Build the extension from source:

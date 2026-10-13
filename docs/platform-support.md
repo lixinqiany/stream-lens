@@ -1,5 +1,7 @@
 # Media compatibility / 媒体兼容性
 
+格式兼容性不授予媒体内容使用权，也不表示特定保存或传播行为合法。使用前请确认相应授权及适用法律，详见 [使用与版权声明](../DISCLAIMER.md#中文)。
+
 ## 格式与播放方式
 
 | 视频格式 / 播放方式 | 下载方式与条件 |
@@ -40,6 +42,8 @@ npm run build:extension
 离线检查不访问外部视频页面。浏览器验收应使用有权保存的测试媒体，分别检查内容脚本、扩展权限、原生保存窗口和最终文件。媒体请求会校验站点权限、重定向目标和字节范围。
 
 ## English
+
+Format compatibility grants no rights to media content and does not establish that saving or redistribution is lawful. Verify the required permissions and applicable law; see the [usage and copyright notice](../DISCLAIMER.md#english).
 
 Support is described by media format and player integration rather than by named services or works. Direct MP4 / WebM, compatible HLS VOD, AES-128 identity and adapted H.264/AAC DASH players are supported within the conditions above. Format support does not guarantee that every webpage or quality option is downloadable.
 
