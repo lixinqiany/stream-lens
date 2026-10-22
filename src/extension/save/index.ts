@@ -1,7 +1,9 @@
 import {t,watchLanguage,applyDocumentLanguage,localizeText} from '../../i18n';
 import {forgetDestination,pickDestination,type SavePicker} from '../../platform/destination';
 import type {Response,SaveCommand,SaveRequest,StartResult} from '../../platform/messages';
+import {watchDocumentTheme} from '../theme';
 import './styles.css';
+watchDocumentTheme();
 const requestId=new URL(location.href).searchParams.get('request')||'';
 const choose=document.querySelector<HTMLButtonElement>('#choose')!;
 const cancel=document.querySelector<HTMLButtonElement>('#cancel')!;

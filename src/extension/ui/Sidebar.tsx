@@ -7,6 +7,7 @@ import { useExtension } from './use-extension';
 import {selectedAssets,otherPlayerAssets} from '../../core/discovery/selection';
 import {PermissionError} from '../../core/hls/fetch';
 import {statusLabel,formatProgress,formatSize as size,formatDuration as duration,matchesFilter,type TaskFilter} from './presentation';
+import {brandLogo,themeStyle} from '../theme';
 type View='page'|'tasks'|'settings';
 const version=chrome.runtime.getManifest?.().version||'0.3.3';
 function Icon({label,onClick,children,disabled}:{label:string;onClick:()=>void;children:ReactNode;disabled?:boolean}){return <button type="button" className="sl-icon-button" aria-label={label} title={label} onClick={onClick} disabled={disabled}>{children}</button>;}
@@ -77,8 +78,8 @@ export function Sidebar() {
   const filterCounts={all:snapshot.tasks.length+pendingSaves.length,active:active.length+pendingSaves.length,failed:snapshot.tasks.filter(t=>t.state==='failed').length,ended:clearCount};
   const showPending=filter==='all'||filter==='active';
   const emptyTitles:Record<TaskFilter,string>={all:t("no_downloads_yet"),active:t("no_active_downloads"),failed:t("no_failed_downloads"),ended:t("no_finished_downloads")};
-  return <div className={`sl-preview sl-live ${prefs.theme==='dark'?'sl-dark':''}`}><section className="sl-extension" aria-label={t("streamlens_sidebar")}>
-    <header className="sl-app-header"><span className="sl-brand"><span className="sl-brand-icon"><ArrowDownToLine size={19}/></span><strong>{t("streamlens_199")}</strong></span><Icon label={t("settings")} onClick={()=>{if(view!=='settings')returnView.current=view;setView('settings');}}><Settings2 size={17}/></Icon></header>
+  return <div className={`sl-preview sl-live ${prefs.theme==='dark'?'sl-dark':''}`} style={themeStyle(prefs.theme)}><section className="sl-extension" aria-label={t("streamlens_sidebar")}>
+    <header className="sl-app-header"><span className="sl-brand"><img className="sl-brand-logo" src={brandLogo} width={34} height={34} alt="" draggable={false}/><strong>{t("streamlens_199")}</strong></span><Icon label={t("settings")} onClick={()=>{if(view!=='settings')returnView.current=view;setView('settings');}}><Settings2 size={17}/></Icon></header>
     <nav className="sl-app-navigation" aria-label={t("sidebar_navigation")}><button aria-current={view==='page'?'page':undefined} className={view==='page'?'active':''} onClick={()=>setView('page')}>{t("current_page")}{main.length>0&&<span>{main.length}</span>}</button><button aria-current={view==='tasks'?'page':undefined} className={view==='tasks'?'active':''} onClick={()=>setView('tasks')}>{t("downloads")}{active.length+pendingSaves.length>0&&<span>{active.length+pendingSaves.length}</span>}</button></nav>
     {api.error&&<div className="sl-live-error" role="alert"><Info size={15}/><div><span>{localizeText(api.error)}</span>{api.pendingOrigins.length>0&&<><small>{api.pendingOrigins.map(o=>new URL(o).hostname).join(currentLocale()==='zh_CN'?'、':', ')}</small><button className="sl-secondary" onClick={()=>void perform(()=>grantAccess(),t("resource_access_allowed"))}>{t("allow_access")}</button><button className="sl-secondary" onClick={()=>void perform(()=>grantAccess(true),t("access_restored"))}>{t("restore_all_access")}</button><small>{t("chrome_has_restricted_site_access")}</small></>}</div><button onClick={()=>api.setError('')} aria-label={t("dismiss_error")}><X size={14}/></button></div>}
     {view==='page'&&<div className="sl-page-content"><div className="sl-source-row"><Globe size={14}/><span>{httpUrl(tab?.url)?new URL(tab!.url!).hostname:t("current_tab")}</span><Icon label={t("detect_again")} disabled={busy||!authorized} onClick={()=>void scan()}><RefreshCw size={15} className={busy?'spin':''}/></Icon></div>

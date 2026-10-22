@@ -6,6 +6,7 @@ import {biliEndpoint} from '../../core/sites/bilibili';
 import {youtubeEndpoint,youtubeId} from '../../core/sites/youtube';
 import {douyinEndpoint,douyinId} from '../../core/sites/douyin';
 import {isYfspPlaceholder} from '../../core/sites/yfsp';
+import {themeCss} from '../theme';
 import type {PlayerCommand, PlayerResolveResult, Response, StartResult} from '../../platform/messages';
 
 const state=globalThis as typeof globalThis & {__streamLens?:boolean};
@@ -163,6 +164,7 @@ if(!state.__streamLens) {
   });
 
   // The overlay uses its own shadow root, so website CSS cannot restyle controls.
+  const shortcutSize=36;
   const host=document.createElement('div');
   // Hide before insertion; position() owns visibility through inline !important.
   // A shadow :host display !important would override even that inline style.
@@ -170,11 +172,30 @@ if(!state.__streamLens) {
   host.setAttribute('data-stream-lens-overlay','');
   const shadow=host.attachShadow({mode:'closed'});
   const style=document.createElement('style');
-  style.textContent=`:host{all:initial;position:fixed!important;z-index:2147483647!important;display:block;pointer-events:none!important;font-family:system-ui,-apple-system,sans-serif!important;color:#eef0f5!important}*{box-sizing:border-box}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.65}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #93b1ff;outline-offset:3px}.wrap{position:relative;pointer-events:none}.shortcut{pointer-events:auto;border:1px solid #ffffff30;border-radius:9px;background:#1e2128ed;color:#fff;padding:9px 13px;box-shadow:0 3px 16px #0005;display:flex;gap:7px;align-items:center;font-size:13px;font-weight:600}.shortcut:hover{background:#333a49}.shortcut svg{width:16px;height:16px}.panel{overflow-y:auto;position:absolute;right:0;top:46px;width:292px;max-width:calc(100vw - 24px);border:1px solid #333844;background:#1e2128;border-radius:12px;box-shadow:0 10px 40px #0008;padding:16px;pointer-events:auto;font-size:13px;line-height:1.5}[hidden]{display:none!important}.heading{display:flex;align-items:center;justify-content:space-between;font-weight:650;font-size:14px}.close{min-width:28px;min-height:28px;border:0;background:transparent;color:#b5bdcc;font-size:20px;padding:0 4px}.status{color:#b5bdcc;margin:10px 0;word-break:break-word}select,input{display:block;width:100%;border:1px solid #454c5a;border-radius:7px;background:#282c35;color:#fff;padding:8px;margin:8px 0}.start{width:100%;background:#7b9fff;color:#14234a;border:0;border-radius:7px;padding:9px;font-weight:650;margin-top:8px}.secondary{border:0;color:#a9beff;background:transparent;padding:9px 0 0;min-height:36px}.retry{margin-right:18px}.error{color:#f19999}label{color:#b5bdcc;font-size:12px}`;
+  style.textContent=`
+    :host{all:initial;${themeCss('dark')}position:fixed!important;z-index:2147483647!important;display:block;pointer-events:none!important;font-family:system-ui,-apple-system,sans-serif!important;color:var(--sl-text)!important}
+    *{box-sizing:border-box}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.65}
+    button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--sl-accent);outline-offset:3px}
+    .wrap{position:relative;pointer-events:none}
+    .shortcut{appearance:none;pointer-events:auto;display:grid;place-items:center;width:${shortcutSize}px;height:${shortcutSize}px;padding:0;border:1px solid color-mix(in srgb,var(--sl-accent) 30%,transparent);border-radius:11px;background:color-mix(in srgb,var(--sl-page) 94%,transparent);color:var(--sl-accent);box-shadow:0 3px 12px #0004,inset 0 1px 0 #ffffff0d;backdrop-filter:blur(10px);transition:background .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease}
+    .shortcut:hover:not(:disabled){background:var(--sl-accent-soft);border-color:var(--sl-accent);color:var(--sl-text);box-shadow:0 5px 16px #0005;transform:translateY(-1px)}
+    .shortcut:active:not(:disabled){transform:scale(.94)}
+    .shortcut[aria-expanded="true"]{background:var(--sl-accent);border-color:var(--sl-accent);color:var(--sl-on-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--sl-accent) 14%,transparent),0 4px 14px #0004}
+    .shortcut svg{display:block;width:22px;height:22px}
+    .shortcut .lens-frame{opacity:.6}
+    .panel{overflow-y:auto;position:absolute;right:0;top:46px;width:292px;max-width:calc(100vw - 24px);border:1px solid var(--sl-line);background:var(--sl-surface);border-radius:12px;box-shadow:0 10px 40px #0008;padding:16px;pointer-events:auto;font-size:13px;line-height:1.5}
+    [hidden]{display:none!important}.heading{display:flex;align-items:center;justify-content:space-between;font-weight:650;font-size:14px}
+    .close{min-width:28px;min-height:28px;border:0;border-radius:6px;background:transparent;color:var(--sl-subtle);font-size:20px;padding:0 4px}.close:hover{background:var(--sl-soft)}
+    .status{color:var(--sl-subtle);margin:10px 0;word-break:break-word}
+    select,input{display:block;width:100%;border:1px solid var(--sl-line);border-radius:8px;background:var(--sl-soft);color:var(--sl-text);padding:8px;margin:8px 0}
+    .start{width:100%;background:var(--sl-accent);color:var(--sl-on-accent);border:0;border-radius:8px;padding:9px;font-weight:650;margin-top:8px}.start:hover:not(:disabled){background:var(--sl-accent-hover)}
+    .secondary{border:0;color:var(--sl-accent);background:transparent;padding:9px 0 0;min-height:36px}.secondary:hover{color:var(--sl-accent-hover)}.retry{margin-right:18px}.error{color:var(--sl-danger)}label{color:var(--sl-subtle);font-size:12px}
+    @media(prefers-reduced-motion:reduce){.shortcut{transition:none}.shortcut:hover:not(:disabled),.shortcut:active:not(:disabled){transform:none}}
+  `;
   const wrap=document.createElement('div');wrap.className='wrap';
   const shortcut=document.createElement('button');shortcut.className='shortcut';shortcut.type='button';shortcut.setAttribute('aria-label',t("download_selected_video"));shortcut.setAttribute('aria-expanded','false');
   // This fixed icon markup is extension-owned; no website data is rendered as HTML.
-  shortcut.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg><span></span>';
+  shortcut.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="lens-frame" d="M8 4H6a2 2 0 0 0-2 2v2m12-4h2a2 2 0 0 1 2 2v2M4 16v2a2 2 0 0 0 2 2h2m8 0h2a2 2 0 0 0 2-2v-2"/><path d="M12 7v9m-3-3 3 3 3-3"/></svg>';
   const panel=document.createElement('div');panel.className='panel';panel.hidden=true;panel.setAttribute('role','region');panel.setAttribute('aria-label',t("video_download_controls"));
   const heading=document.createElement('div');heading.className='heading';heading.textContent=t("download_video");
   const close=document.createElement('button');close.className='close';close.type='button';close.textContent='×';close.setAttribute('aria-label',t("close_download_controls"));heading.append(close);
@@ -188,7 +209,7 @@ if(!state.__streamLens) {
   panel.append(heading,status,quality,nameLabel,start,retry,more);wrap.append(shortcut,panel);shadow.append(style,wrap);document.documentElement.append(host);
   function renderLanguage(){
     host.lang=currentLocale()==='zh_CN'?'zh-CN':'en';
-    shortcut.querySelector('span')!.textContent=t("download_video");shortcut.setAttribute('aria-label',t("download_selected_video"));
+    shortcut.setAttribute('aria-label',t("download_selected_video"));shortcut.title=t("download_selected_video");
     heading.firstChild!.textContent=t("download_video");panel.setAttribute('aria-label',t("video_download_controls"));close.setAttribute('aria-label',t("close_download_controls"));
     quality.setAttribute('aria-label',t("download_quality"));filename.setAttribute('aria-label',t("download_filename"));nameLabel.firstChild!.textContent=t("filename");
     retry.textContent=t("retry");more.textContent=pendingPermission?t("open_sidebar_to_allow_access"):t("view_downloads");
@@ -282,7 +303,11 @@ if(!state.__streamLens) {
     const visible=rect.width>=100&&rect.height>=60&&rect.bottom>30&&rect.top<innerHeight-30&&rect.right>30&&rect.left<innerWidth-30;
     host.style.setProperty('display',visible?'block':'none','important');
     if(!visible)return;
-    const buttonWidth=shortcut.offsetWidth||114;host.style.setProperty('left',Math.max(8,Math.min(innerWidth-buttonWidth-8,rect.right-buttonWidth-12))+'px','important');
+    const buttonWidth=shortcut.offsetWidth||shortcutSize;
+    const buttonLeft=Math.max(8,Math.min(innerWidth-buttonWidth-8,rect.right-buttonWidth-12));
+    host.style.setProperty('left',buttonLeft+'px','important');
+    const panelWidth=panel.offsetWidth||Math.min(292,innerWidth-24);
+    panel.style.right=Math.min(0,buttonLeft+buttonWidth-panelWidth-8)+'px';
     host.style.setProperty('top',Math.max(8,rect.top+12)+'px','important');
     const buttonTop=Math.max(8,rect.top+12);
     panel.style.maxHeight=Math.max(100,innerHeight-16)+'px';panel.style.top=popoverOpen&&buttonTop+46+panel.offsetHeight>innerHeight-8?Math.max(-buttonTop+8,innerHeight-buttonTop-panel.offsetHeight-8)+'px':'46px';
