@@ -47,7 +47,7 @@ if(!state.__streamLens) {
     const visible=media().filter(v=>{const r=v.getBoundingClientRect();return r.width>=100&&r.height>=60&&r.bottom>0&&r.top<innerHeight;});
     return visible.length===1&&visible[0]===video;
   }
-  function inspect() {
+  function inspect(reselect=false) {
     if(location.href!==lastLocation){resolutionAttempt='';resolutionFlight=undefined;pendingPermission=undefined;lastLocation=location.href;target=undefined;selectionMode='auto';selectedAt=0;resolved=undefined;popoverOpen=false;previous='';sourceHints.clear();scriptBindings.clear();}
     const videos=media();
     if(target&&!target.isConnected){target=undefined;resolved=undefined;popoverOpen=false;}
@@ -61,6 +61,7 @@ if(!state.__streamLens) {
       }));
       if(primary){target=primary;selectionMode='auto';selectedAt=Date.now();selectPending=true;}
     }
+    if(reselect&&target){selectedAt=Date.now();selectPending=true;}
     const evidence:VideoEvidence[]=[];
     const douyin=douyinEndpoint(location.href);
     if(target&&douyin&&douyinMatches(target))evidence.push({...info(target),url:douyin,source:'player',contentType:'video/mp4'});
@@ -236,13 +237,14 @@ if(!state.__streamLens) {
     const pending=pendingPermission;if(!pending||busy)return;
     pendingPermission=undefined;
     if(target!==pending.video||key(pending.video)!==pending.sourceKey)return;
+    const pageUrl=location.href;
     busy=true;shortcut.disabled=true;start.disabled=true;status.className='status';status.textContent=t("working");
     try {
-      inspect();const result=await send<PlayerResolveResult|StartResult>(pending.command);
-      if(target!==pending.video||key(pending.video)!==pending.sourceKey)return;
+      inspect(true);const result=await send<PlayerResolveResult|StartResult>(pending.command);
+      if(target!==pending.video||key(pending.video)!==pending.sourceKey||location.href!==pageUrl)return;
       if(pending.command.type==='PLAYER_RESOLVE')showResolved(result as PlayerResolveResult);else showStarted(result as StartResult);
       more.textContent=t("view_downloads");
-    }catch(e){permissionFailure(e,pending.command,pending.video,pending.sourceKey);status.setAttribute('role','alert');status.className='status error';status.textContent=e instanceof Error?localizeText(e.message):t("download_failed");}
+    }catch(e){if(target!==pending.video||key(pending.video)!==pending.sourceKey||location.href!==pageUrl)return;permissionFailure(e,pending.command,pending.video,pending.sourceKey);status.setAttribute('role','alert');status.className='status error';status.textContent=e instanceof Error?localizeText(e.message):t("download_failed");}
     finally{busy=false;shortcut.disabled=false;start.disabled=false;}
   }
   more.addEventListener('click',()=>{if(target)void send({type:'PLAYER_PANEL',playerId:id(target)}).catch(e=>{status.textContent=localizeText(e.message);});});
@@ -274,23 +276,23 @@ if(!state.__streamLens) {
   retry.addEventListener('click',async event=>{
     event.stopPropagation();if(!target||busy||retry.disabled)return;
     retry.disabled=true;retry.hidden=true;status.setAttribute('role','status');status.className='status';status.textContent=t("detecting_quality");
-    try{await resolveSelected(target);}finally{retry.disabled=false;}
+    try{inspect(true);if(target)await resolveSelected(target);}finally{retry.disabled=false;}
   });
   shortcut.addEventListener('click',async event=>{
-    event.stopPropagation();if(!target||busy)return;
+    event.stopPropagation();if(busy)return;inspect(true);if(!target)return;
     if(popoverOpen){hide();return;}
     popoverOpen=true;panel.hidden=false;retry.hidden=true;shortcut.setAttribute('aria-expanded','true');status.className='status';status.textContent=t("detecting_quality");quality.hidden=true;start.hidden=true;nameLabel.hidden=true;
     if(resolved&&resolvedSource===key(target)){showResolved(resolved);return;}
-    inspect();await resolveSelected(target);
+    await resolveSelected(target);
   });
   start.addEventListener('click',async event=>{
     event.stopPropagation();if(!target||!resolved||busy)return;
     if(resolvedSource!==key(target)){resolved=undefined;status.textContent=t("the_video_changed_reopen_the_download_controls");start.hidden=true;return;}
     if(resolved.preferences.editFilename&&!resolved.preferences.saveAs&&!filename.value.trim()){filename.focus();return;}
-    busy=true;start.disabled=true;quality.disabled=true;filename.disabled=true;start.textContent=t("working");const chosen=target,sourceKey=key(chosen);
+    busy=true;start.disabled=true;quality.disabled=true;filename.disabled=true;start.textContent=t("working");const chosen=target,sourceKey=key(chosen),pageUrl=location.href;
     const command:PlayerCommand={type:'PLAYER_START',playerId:id(chosen),assetId:resolved.asset.id,variantId:quality.value,filename:resolved.preferences.editFilename&&!resolved.preferences.saveAs?filename.value:undefined};
-    try {const result=await send<StartResult>(command);if(target===chosen&&key(chosen)===sourceKey)showStarted(result);}
-    catch(e){permissionFailure(e,command,chosen,sourceKey);status.setAttribute('role','alert');status.className='status error';status.textContent=e instanceof Error?localizeText(e.message):t("download_failed");}
+    try {const result=await send<StartResult>(command);if(target===chosen&&key(chosen)===sourceKey&&location.href===pageUrl)showStarted(result);}
+    catch(e){if(target!==chosen||key(chosen)!==sourceKey||location.href!==pageUrl)return;permissionFailure(e,command,chosen,sourceKey);status.setAttribute('role','alert');status.className='status error';status.textContent=e instanceof Error?localizeText(e.message):t("download_failed");}
     finally{busy=false;start.disabled=false;quality.disabled=false;filename.disabled=false;start.textContent=resolved?.preferences.saveAs?t("choose_location_download"):t("start_download");}
   });
   function position() {

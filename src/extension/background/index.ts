@@ -91,11 +91,13 @@ chrome.webRequest.onBeforeRequest.addListener(details=>{
     pageQueue=pageQueue.then(()=>chrome.storage.session.remove('page:'+details.tabId)).then(()=>{}).catch(()=>{});
   }
 },{urls:['http://*/*','https://*/*'],types:['main_frame']});
-chrome.tabs.onUpdated.addListener((tabId,change,tab)=>{
+chrome.tabs.onUpdated.addListener((tabId,change)=>{
   if(change.status==='loading'||change.url) {
     pageQueue=pageQueue.then(async()=>{
       const old=await getPage(tabId);
-      if(old&&old.pageUrl!==tab.url) await chrome.storage.session.remove('page:'+tabId);
+      const current=await chrome.tabs.get(tabId).catch(()=>undefined);
+      // Queued updates may describe an earlier SPA route than the stored catalog.
+      if(old&&current?.url&&old.pageUrl!==current.url) await chrome.storage.session.remove('page:'+tabId);
     }).catch(()=>{});
   }
 });
@@ -120,9 +122,12 @@ async function acceptEvidence(message:ContentMessage,sender:chrome.runtime.Messa
   const tabId=sender.tab?.id;if(tabId===undefined||!httpUrl(sender.url)||!Array.isArray(message.evidence))return;
   if(!await chrome.permissions.contains({origins:[originPattern(sender.url!)]}))return;
   const tab=await chrome.tabs.get(tabId);if(!httpUrl(tab.url))return;
-  if(sender.frameId===0&&sender.url!==tab.url)return;
+  // MessageSender.url can retain the document's initial URL across SPA navigation.
+  // The content script must report the live route, within the sender's origin.
+  if((sender.frameId??0)===0&&(httpUrl(message.pageUrl)!==tab.url||new URL(sender.url!).origin!==new URL(tab.url!).origin))return;
   if(sender.documentId)frameDocuments.set(tabId+':'+sender.frameId,sender.documentId);
-  const page=await getPage(tabId)||{pageUrl:tab.url!,assets:[],documentKey:sender.documentId||'',updatedAt:Date.now()};
+  const stored=await getPage(tabId);
+  const page:PageCatalog=stored&&stored.pageUrl===tab.url?stored:{pageUrl:tab.url!,assets:[],documentKey:sender.documentId||'',updatedAt:Date.now()};
   for(const raw of message.evidence.slice(0,100)) {
     if(!raw||typeof raw!=='object'||typeof raw.title!=='string')continue;
     const url=httpUrl(raw.url);if(!url)continue;
@@ -138,7 +143,8 @@ async function acceptEvidence(message:ContentMessage,sender:chrome.runtime.Messa
   if(player&&typeof player.playerId==='string'&&player.playerId.length<=100&&typeof player.sourceKey==='string'&&player.sourceKey.length<=16000&&typeof player.title==='string'&&Number.isFinite(player.selectedAt)) {
     const playerId=playerKey(sender.documentId,sender.frameId,player.playerId);
     const auto=player.mode==='auto';
-    const maySelect=message.select===true&&player.selectedAt>=(page.selection?.selectedAt||0)&&(!auto||(sender.frameId===0&&(!page.selection||page.selection.mode==='auto')));
+    // A cleared catalog must recover the content script's existing selection.
+    const maySelect=(message.select===true||!page.selection)&&player.selectedAt>=(page.selection?.selectedAt||0)&&(!auto||(sender.frameId===0&&(!page.selection||page.selection.mode==='auto')));
     if(maySelect||page.selection?.playerId===playerId) {
       if(page.selection?.playerId!==playerId||page.selection?.sourceKey!==player.sourceKey){page.shortcutError=undefined;page.assets=page.assets.map(a=>a.playerBindings?.some(b=>b.playerId===playerId&&b.sourceKey===player.sourceKey)?{...a,variants:undefined,resolutionState:undefined,resolutionError:undefined,resolutionOrigins:undefined}:a);}
       page.selection={playerId,sourceKey:player.sourceKey,title:player.title.slice(0,300),playing:player.playing===true,selectedAt:player.selectedAt,mode:auto&&page.selection?.mode!=='manual'?'auto':'manual'};

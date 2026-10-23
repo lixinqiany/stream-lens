@@ -2,7 +2,11 @@ import {destinationDatabase,destinationFile} from './support/destinations';
 import {rememberDestination} from '../../platform/destination';
 const destinationRecords=destinationDatabase();const chooserWindows:any[]=[];let removedWindow:(id:number)=>void=()=>{};let windowFocuses=0;let runnerReject=false;
 import {test} from 'node:test';import assert from 'node:assert/strict';import {mergeEvidence} from '../discovery/catalog';import type {DownloadRecord} from '../model';
-const event=()=>({addListener:(_fn:unknown)=>{}});const local:Record<string,any>={};const session:Record<string,any>={};let receive:any;let headerRules:any[]=[];let headerWrites=0;const runner:any[]=[];const downloads=new Map<number,any>();let nextId=1;let runnerAlive=false;let granted=true;let releaseDownload:(id:number)=>void;let delayDownload=false;let cancelReply:undefined|(()=>Promise<any>);let runReply:undefined|(()=>Promise<any>);let temporaryFailure=false;const temporaryFiles=new Set<string>();
+const event=()=>{
+ let listener=(..._args:any[])=>{};
+ return {addListener:(fn:typeof listener)=>{listener=fn;},emit:(...args:any[])=>listener(...args)};
+};
+const local:Record<string,any>={};const session:Record<string,any>={};let receive:any;let headerRules:any[]=[];let headerWrites=0;const runner:any[]=[];const downloads=new Map<number,any>();let nextId=1;let runnerAlive=false;let granted=true;let releaseDownload:(id:number)=>void;let delayDownload=false;let cancelReply:undefined|(()=>Promise<any>);let runReply:undefined|(()=>Promise<any>);let temporaryFailure=false;const temporaryFiles=new Set<string>();
 const store=(data:Record<string,any>)=>({get:async(key:string|null)=>key===null?structuredClone(data):({[key]:structuredClone(data[key])}),set:async(patch:any)=>{Object.assign(data,structuredClone(patch));},remove:async(key:string)=>{delete data[key];}});
 Object.assign(globalThis,{chrome:{windows:{create:async(options:any)=>{chooserWindows.push(options);return {id:chooserWindows.length};},update:async()=>{windowFocuses++;},remove:async(id:number)=>{removedWindow(id);},onRemoved:{addListener:(fn:any)=>{removedWindow=fn;}}},declarativeNetRequest:{RuleActionType:{MODIFY_HEADERS:'modifyHeaders'},HeaderOperation:{SET:'set'},ResourceType:{XMLHTTPREQUEST:'xmlhttprequest'},getSessionRules:async()=>structuredClone(headerRules),updateSessionRules:async({removeRuleIds,addRules}:any)=>{headerWrites++;headerRules=[...headerRules.filter(r=>!removeRuleIds.includes(r.id)),...addRules]}},runtime:{id:'test',getURL:(p:string)=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:{addListener:(fn:any)=>{receive=fn;}},sendMessage:async(m:any)=>{runner.push(m);if(m.type==='RUN'&&runReply)return runReply();if(m.type==='CONTROL'&&m.action==='cancel'&&cancelReply)return cancelReply();return runnerReject&&m.type==='RUN'?{ok:false,error:'runner unavailable'}:{ok:true};}},sidePanel:{setPanelBehavior:async()=>{}},storage:{local:store(local),session:store(session)},scripting:{getRegisteredContentScripts:async()=>[],registerContentScripts:async()=>{},unregisterContentScripts:async()=>{},executeScript:async()=>{}},permissions:{contains:async()=>granted,getAll:async()=>({origins:['https://cdn.example/*']}),onRemoved:event(),onAdded:event()},tabs:{onRemoved:event(),onUpdated:event(),get:async()=>({id:1,url:'https://page.example/',title:'Test'}),sendMessage:async()=>{},create:async()=>{}},webRequest:{onBeforeRequest:event(),onHeadersReceived:event()},action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},offscreen:{Reason:{BLOBS:'BLOBS'},hasDocument:async()=>runnerAlive,createDocument:async()=>{runnerAlive=true;}},alarms:{create:async()=>{},onAlarm:event()},downloads:{onChanged:event(),download:async(options:any)=>{const id=nextId++;downloads.set(id,{saveAs:options.saveAs,id,state:'in_progress',bytesReceived:10,totalBytes:100,url:options.url});if(delayDownload)return new Promise<number>(resolve=>{releaseDownload=()=>resolve(id);});return id;},search:async({id}:any)=>downloads.has(id)?[downloads.get(id)]:[],pause:async(id:number)=>{downloads.get(id).paused=true;},resume:async(id:number)=>{downloads.get(id).paused=false;},cancel:async(id:number)=>{Object.assign(downloads.get(id),{state:'interrupted',error:'USER_CANCELED'});},show:async()=>{}}}});
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{storage:{getDirectory:async()=>({getDirectoryHandle:async()=>({removeEntry:async(name:string)=>{if(temporaryFailure)throw new Error('disk busy');temporaryFiles.delete(name);}})})}}});
@@ -87,6 +91,41 @@ test('player shortcut uses selected source and rejects other frames and stale so
 test('bound DASH cannot be offered as a silent direct MP4 download',async()=>{
  reset();content({type:'EVIDENCE',pageUrl:'https://page.example/',select:true,player:{playerId:'bili',sourceKey:'blob:dash',title:'Bili',playing:true,selectedAt:200},evidence:[{url:'https://cdn.example/video.m4s',playerId:'bili',sourceKey:'blob:dash',format:'DASH',title:'Bili',pageUrl:'https://page.example/',width:1280,height:720,playing:true,primary:true,protected:false,source:'player'}]});await ui({type:'SNAPSHOT',tabId:1});
  const response=await player({type:'PLAYER_RESOLVE',playerId:'bili'});assert.equal(response.ok,false);assert.match(response.error,/暂不支持/);assert.equal(local.tasks.length,0);
+});
+test('SPA episode changes accept current evidence from the original document and keep the running download',async()=>{
+ reset();const originalGet=chrome.tabs.get;
+ const sixth='https://www.yfsp.tv/play/BHavV3bAAwE?id=zgX4AijLaM6',seventh='https://www.yfsp.tv/play/BHavV3bAAwE?id=es01PYGlW1E';let tabUrl=sixth;
+ (chrome.tabs as any).get=async()=>({id:1,url:tabUrl,title:'Episode'});
+ const sender={id:'test',url:sixth,documentId:'spa-episode-doc',frameId:0,tab:{id:1}};
+ const evidence=(pageUrl:string,episode:number)=>{const data=selectedEvidence('blob:episode-'+episode,'https://cdn.example/episode-'+episode+'.m3u8',episode);return {...data,pageUrl,player:{...data.player,mode:'auto'},evidence:data.evidence.map((e:any)=>({...e,pageUrl}))};};
+ const request=(message:any)=>new Promise<any>(resolve=>receive(message,sender,resolve));
+ try{
+  receive(evidence(sixth,6),sender,()=>{});await ui({type:'SNAPSHOT',tabId:1});
+  const resolved=await request({type:'PLAYER_RESOLVE',playerId:'automatic'});assert(resolved.ok,resolved.error);
+  const started=await request({type:'PLAYER_START',playerId:'automatic',assetId:resolved.value.asset.id,variantId:'original'});assert(started.ok,started.error);
+  const running=structuredClone(local.tasks[0]);
+  tabUrl=seventh;(chrome.tabs.onUpdated as any).emit(1,{url:seventh},{id:1,url:seventh});await ui({type:'SNAPSHOT',tabId:1});
+  receive(evidence(seventh,7),sender,()=>{});await ui({type:'SNAPSHOT',tabId:1});
+  const next=await request({type:'PLAYER_RESOLVE',playerId:'automatic'});assert(next.ok,next.error);assert.equal(next.value.asset.url,'https://cdn.example/episode-7.m3u8');
+  assert.deepEqual(local.tasks[0],running,'changing episodes leaves the running task intact');
+  receive(evidence(sixth,6),sender,()=>{});await ui({type:'SNAPSHOT',tabId:1});assert.equal(session['page:1'].selection.sourceKey,'blob:episode-7','late previous-episode evidence is rejected');
+  receive(evidence(seventh,8),{...sender,url:'https://foreign.example/'},()=>{});await ui({type:'SNAPSHOT',tabId:1});assert.equal(session['page:1'].selection.sourceKey,'blob:episode-7','a different origin cannot claim the current route');
+  const nextStarted=await request({type:'PLAYER_START',playerId:'automatic',assetId:next.value.asset.id,variantId:'original'});assert(nextStarted.ok,nextStarted.error);
+  assert.equal(local.tasks.length,2);assert.deepEqual(local.tasks.find((task:any)=>task.id===running.id),running);
+ }finally{(chrome.tabs as any).get=originalGet;}
+});
+test('player evidence restores selection after the page catalog was cleared without another click',async()=>{
+ reset();const evidence=selectedEvidence('blob:restore','https://cdn.example/restore.m3u8');evidence.player.mode='auto';content(evidence);
+ await ui({type:'SNAPSHOT',tabId:1});delete session['page:1'];
+ content({...evidence,select:false});await ui({type:'SNAPSHOT',tabId:1});
+ assert.equal(session['page:1'].selection?.playerId,'doc:automatic');
+ const response=await player({type:'PLAYER_RESOLVE',playerId:'automatic'});assert(response.ok,response.error);
+});
+test('a delayed tab update uses the live URL before clearing a newer episode catalog',async()=>{
+ reset();const originalGet=chrome.tabs.get;const current='https://page.example/?episode=7';
+ (chrome.tabs as any).get=async()=>({id:1,url:current});session['page:1'].pageUrl=current;
+ try{(chrome.tabs.onUpdated as any).emit(1,{url:'https://page.example/?episode=6'},{id:1,url:'https://page.example/?episode=6'});await ui({type:'SNAPSHOT',tabId:1});assert.equal(session['page:1']?.pageUrl,current);}
+ finally{(chrome.tabs as any).get=originalGet;}
 });
 test('Bilibili DASH resolves episode quality, requires audio permission and starts independent runner',async()=>{
  reset();const oldFetch=globalThis.fetch;
